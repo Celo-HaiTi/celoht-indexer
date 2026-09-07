@@ -1,0 +1,18 @@
+{
+  "parser": "@typescript-eslint/parser",
+  "plugins": ["@typescript-eslint"],
+  "extends": ["eslint:recommended", "plugin:@typescript-eslint/recommended"],
+  "env": { "node": true, "es2022": true },
+  "parserOptions": { "ecmaVersion": 2022, "sourceType": "module" },
+  "rules": {
+    "@typescript-eslint/no-unused-vars": "error",
+    "@typescript-eslint/no-explicit-any": "error",
+    "no-restricted-syntax": [
+      "error",
+      {
+        "selector": "Literal[value=/^0x[0-9a-fA-F]{40}$/]",
+        "message": "Do not hardcode contract addresses in source. Load them from deployments/*.json via src/config/network.ts."
+      }
+    ]
+  }
+}

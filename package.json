@@ -1,0 +1,32 @@
+{
+  "name": "celoht-indexer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Official CeloHT blockchain indexer: syncs celoht-smart-contracts events into Supabase.",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --max-warnings=0",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.4",
+    "viem": "^2.21.19",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.10",
+    "@typescript-eslint/eslint-plugin": "^7.16.0",
+    "@typescript-eslint/parser": "^7.16.0",
+    "eslint": "^8.57.0",
+    "tsx": "^4.19.1",
+    "typescript": "^5.5.3",
+    "vitest": "^2.1.1"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

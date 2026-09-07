@@ -1,0 +1,44 @@
+{
+  "network": "celoSepolia",
+  "chainId": 11142220,
+  "deployer": "0xAC4F2AE7127150eAf411E7Be774531af9c94Bb66",
+  "usdm": "0xdE9e4C3ce781b4bA68120d6261cbad65ce0aB00b",
+  "generalTreasury": "0xd856e0599cc49C9cef6C358d2c2f064112A6b384",
+  "educationTreasury": "0xd856e0599cc49C9cef6C358d2c2f064112A6b384",
+  "reforestationTreasury": "0xd856e0599cc49C9cef6C358d2c2f064112A6b384",
+  "governanceTreasury": "0xd856e0599cc49C9cef6C358d2c2f064112A6b384",
+  "treasuryConfiguration": "Option A - all four treasury categories use the same confirmed CeloHT Treasury Safe",
+  "agentRegistry": "0x7C5bF20191f6b467aAcd2DD7693110cc4c17Cc2e",
+  "servicePayments": "0xe91b8A6302FCf5a64A84c671C61B0F1DdA5F0ad2",
+  "education": "0x7422F20F025aCaad86c4de5E6Fa0F3a7B55ac09a",
+  "reforestation": "0xc1eEd81Aa989D818897CCffc755dC2a9B37F9e2A",
+  "governance": "0x7D384851FAbB912287206556479Dd30c740CAdA5",
+  "deploymentBlocks": {
+    "agentRegistry": 35343240,
+    "servicePayments": 35343243,
+    "education": 35343245,
+    "reforestation": 35343247,
+    "governance": 35343249
+  },
+  "transactionHashes": {
+    "agentRegistry": "0x851713db156384b693a759c7028fad89d75ebb3661c0de98fa4166ee1cdd9323",
+    "servicePayments": "0x30442a1ef1fb7a812cba5e2e2bed72d950b5997d524ccc949b11d6552bef7229",
+    "education": "0x018c3aba751a34960a93af0ce35336d6860e8fd9f8f958e17fe12cc1b78bacf4",
+    "reforestation": "0xd11781482be27edc01da7a4b97f8e36ae384609109ea9fa3a0e5eff0dae5dd93",
+    "governance": "0x9959ca2ef0a10d5f36d6ec8efc40eae13300288315a66ef2d5a4a519e8c980ad"
+  },
+  "deploymentTimestamps": {
+    "agentRegistry": "2026-09-05T16:53:48Z",
+    "servicePayments": "2026-09-05T16:53:51Z",
+    "education": "2026-09-05T16:53:53Z",
+    "reforestation": "2026-09-05T16:53:55Z",
+    "governance": "2026-09-05T16:53:57Z"
+  },
+  "compilerVersion": "0.8.24",
+  "optimizerEnabled": true,
+  "optimizerRuns": 200,
+  "verification": "VERIFIED",
+  "verificationSource": "Celo Sepolia Blockscout",
+  "gitCommit": null,
+  "metadataSource": "Public Celo Sepolia RPC and Blockscout transaction data; gitCommit was not available from the deployment record."
+}
