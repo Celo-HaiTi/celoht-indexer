@@ -4,16 +4,25 @@
 ```bash
 npm ci
 cp .env.example .env   # fill in
-# populate abis/ per abis/README.md
 npm run build
 npm start
 ```
 
 ## Health endpoint
 `GET http://localhost:8080/health` (port from `$PORT`, default 8080)
-returns 200 with per-contract sync lag when healthy, 503 when the RPC/chain
-ID mismatches or the database is unreachable, and reflects `degraded` if
-any contract's `indexer_state.sync_status = 'error'`.
+returns 200 with RPC/database status, chain head, per-contract indexed lag, and
+last successful sync data. It returns 503 for an RPC or database failure, chain
+mismatch, or checkpoint error.
+
+## Backfill and recovery
+
+The normal process continuously backfills from each durable checkpoint to the
+latest confirmed block. To test a range without changing Supabase, set
+`DRY_RUN=true` and `START_BLOCK` to the desired lower bound. A restart is safe:
+the last completed batch is the resume cursor and event upserts are idempotent.
+If the database is unavailable, the process records no successful checkpoint;
+restore connectivity and restart it. A detected reorg rolls back invalidated
+events and replays them after the next confirmation pass.
 
 ## Common operational tasks
 - **Re-run a range**: since persistence is idempotent, you can safely

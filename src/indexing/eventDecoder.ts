@@ -12,9 +12,11 @@ export interface DecodedEvent {
   chainId: number;
   contractAddress: string;
   transactionHash: string;
+  transactionIndex: number | null;
   logIndex: number;
   blockNumber: bigint;
   blockHash: string;
+  blockTimestamp: bigint | null;
   eventName: string;
   args: Record<string, unknown>;
 }
@@ -67,17 +69,18 @@ export function decodeLog(params: {
   abi: AbiItem[];
   chainId: number;
   contractAddress: string;
+  blockTimestamp?: bigint | null;
 }): DecodedEvent {
   validateRawLog(params.log, params.chainId, params.contractAddress);
 
-  let decoded;
+  let decoded: { eventName: string; args?: Record<string, unknown> };
   try {
     decoded = decodeEventLog({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       abi: params.abi as any,
       data: params.log.data,
       topics: params.log.topics,
-    });
+    }) as unknown as { eventName: string; args?: Record<string, unknown> };
   } catch (err) {
     throw new MalformedEventError(
       `Log topic0 does not match any known event in the official ABI for ${params.contractAddress}: ${(err as Error).message}`
@@ -88,9 +91,11 @@ export function decodeLog(params: {
     chainId: params.chainId,
     contractAddress: params.contractAddress,
     transactionHash: params.log.transactionHash as string,
+    transactionIndex: params.log.transactionIndex === undefined ? null : Number(params.log.transactionIndex),
     logIndex: Number(params.log.logIndex),
     blockNumber: params.log.blockNumber as bigint,
     blockHash: params.log.blockHash as string,
+    blockTimestamp: params.blockTimestamp ?? null,
     eventName: decoded.eventName,
     args: (decoded.args ?? {}) as Record<string, unknown>,
   };

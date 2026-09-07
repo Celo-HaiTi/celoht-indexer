@@ -18,3 +18,8 @@
   block hash presence) and every decode is validated against the official
   ABI before being trusted (`src/indexing/eventDecoder.ts`) — malformed or
   unexpected data is dropped with an error log, never persisted.
+- The RPC chain ID is compared with the deployment manifest before indexing;
+  Mainnet is not in the allowlist. Contract addresses and deployment blocks
+  are loaded from the verified manifest rather than source literals.
+- `DRY_RUN=true` performs no event, checkpoint, health, or canonical-ledger
+  writes, which provides a non-destructive configuration check.

@@ -10,6 +10,8 @@ const EnvSchema = z.object({
   POLL_INTERVAL_MS: z.coerce.number().int().min(1000).default(15_000),
   RPC_MAX_RETRIES: z.coerce.number().int().min(0).default(5),
   RPC_TIMEOUT_MS: z.coerce.number().int().min(1000).default(15_000),
+  START_BLOCK: z.coerce.number().int().nonnegative().optional(),
+  DRY_RUN: z.enum(["true", "false"]).default("false").transform((value) => value === "true"),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

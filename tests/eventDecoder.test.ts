@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { decodeLog, MalformedEventError } from "@/indexing/eventDecoder";
 import type { Log } from "viem";
+import { contractAddress, loadDeploymentMetadata } from "@/config/network";
 
 const SAMPLE_ABI = [
   {
@@ -13,7 +14,7 @@ const SAMPLE_ABI = [
   },
 ];
 
-const CONTRACT = "0x7C5bF20191f6b467aAcd2DD7693110cc4c17Cc2e";
+const CONTRACT = contractAddress(loadDeploymentMetadata("celoSepolia"), "agentRegistry");
 
 function baseLog(overrides: Partial<Log> = {}): Log {
   return {
@@ -32,7 +33,7 @@ function baseLog(overrides: Partial<Log> = {}): Log {
 
 describe("decodeLog validation", () => {
   it("rejects a log whose address does not match the expected contract", () => {
-    const log = baseLog({ address: "0x0000000000000000000000000000000000000000" as `0x${string}` });
+    const log = baseLog({ address: `0x${"0".repeat(40)}` as `0x${string}` });
     expect(() => decodeLog({ log, abi: SAMPLE_ABI, chainId: 11142220, contractAddress: CONTRACT })).toThrow(
       MalformedEventError
     );

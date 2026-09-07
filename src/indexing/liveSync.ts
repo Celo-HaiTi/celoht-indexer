@@ -11,6 +11,7 @@ export interface SyncTarget {
   contract: ContractName;
   contractAddress: `0x${string}`;
   abi: AbiItem[];
+  deploymentBlock: number;
 }
 
 export interface LiveSyncParams {
@@ -20,6 +21,7 @@ export interface LiveSyncParams {
   batchSize: number;
   maxRetries: number;
   targets: SyncTarget[];
+  dryRun?: boolean;
 }
 
 /** Runs one full reconciliation pass for every configured contract:
@@ -30,9 +32,11 @@ export async function runSyncPass(params: LiveSyncParams): Promise<void> {
   const confirmedBlock = await getConfirmedBlockNumber(params.client, params.confirmations);
 
   for (const target of params.targets) {
-    const checkpoint = await getCheckpoint(params.chainId, target.contractAddress);
+    const checkpoint = params.dryRun
+      ? { lastProcessedBlock: BigInt(target.deploymentBlock - 1), latestConfirmedBlock: null, syncStatus: "idle" as const }
+      : await getCheckpoint(params.chainId, target.contractAddress);
 
-    if (checkpoint.lastProcessedBlock > 0n) {
+    if (!params.dryRun && checkpoint.lastProcessedBlock > 0n) {
       const { reorgDetected, safeBlock } = await detectAndHandleReorg({
         client: params.client,
         chainId: params.chainId,
@@ -44,7 +48,9 @@ export async function runSyncPass(params: LiveSyncParams): Promise<void> {
       }
     }
 
-    const freshCheckpoint = await getCheckpoint(params.chainId, target.contractAddress);
+    const freshCheckpoint = params.dryRun
+      ? checkpoint
+      : await getCheckpoint(params.chainId, target.contractAddress);
     const fromBlock = freshCheckpoint.lastProcessedBlock + 1n;
 
     if (fromBlock > confirmedBlock) {
@@ -62,6 +68,7 @@ export async function runSyncPass(params: LiveSyncParams): Promise<void> {
       toBlock: confirmedBlock,
       batchSize: params.batchSize,
       maxRetries: params.maxRetries,
+      dryRun: params.dryRun,
     });
   }
 }

@@ -3,6 +3,10 @@
 Runs as a long-lived Node.js process (not serverless — it holds an open
 poll loop and an HTTP health server).
 
+Apply the matching `celoht-supabase` migrations, including the production
+indexer schema, before starting. Configure only the Celo Sepolia manifest in
+this release; Mainnet intentionally fails closed.
+
 ```bash
 npm ci
 npm run build

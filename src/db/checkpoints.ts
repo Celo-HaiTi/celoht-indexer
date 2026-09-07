@@ -1,5 +1,6 @@
 import { getServiceRoleClient } from "@/db/supabaseClient";
 import type { ContractName } from "@/config/network";
+import { ensureCanonicalContract, rollbackCanonical, updateCanonicalProgress } from "@/db/canonical";
 
 export interface CheckpointRow {
   chainId: number;
@@ -20,7 +21,16 @@ export async function ensureCheckpoint(params: {
   displayName: string;
   contractAddress: string;
   deploymentBlock: number;
+  startBlock?: number;
+  network?: string;
 }): Promise<void> {
+  await ensureCanonicalContract({
+    chainId: params.chainId,
+    network: params.network ?? "celoSepolia",
+    contractName: params.displayName,
+    contractAddress: params.contractAddress,
+    deploymentBlock: params.deploymentBlock,
+  });
   const supabase = getServiceRoleClient();
   const { data, error } = await supabase
     .from("indexer_state")
@@ -35,7 +45,7 @@ export async function ensureCheckpoint(params: {
     chain_id: params.chainId,
     contract_name: params.displayName,
     contract_address: params.contractAddress,
-    last_processed_block: params.deploymentBlock,
+    last_processed_block: Math.max(params.deploymentBlock, params.startBlock ?? params.deploymentBlock) - 1,
     sync_status: "idle",
   });
   if (insertError) throw insertError;
@@ -79,6 +89,7 @@ export async function updateCheckpointProgress(params: {
     .eq("chain_id", params.chainId)
     .eq("contract_address", params.contractAddress);
   if (error) throw error;
+  await updateCanonicalProgress(params);
 }
 
 export async function recordCheckpointError(params: {
@@ -115,6 +126,7 @@ export async function rollbackCheckpoint(params: {
     .eq("contract_address", params.contractAddress)
     .gt("block_number", params.safeBlock.toString());
   if (deleteError) throw deleteError;
+  await rollbackCanonical(params);
 
   const { error: updateError } = await supabase
     .from("indexer_state")

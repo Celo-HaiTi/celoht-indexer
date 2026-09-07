@@ -8,16 +8,17 @@
 | CeloHTReforestation | `0xc1eEd81Aa989D818897CCffc755dC2a9B37F9e2A` | 35343247 |
 | CeloHTGovernance | `0x7D384851FAbB912287206556479Dd30c740CAdA5` | 35343249 |
 
-Source: `deployments/celoSepolia.json`, as supplied for this network. This
-file — not this document — is the value the code actually reads; this table
-exists only as a human-readable summary and must be kept in sync with it.
+Source: `deployments/celoSepolia.json`, copied from
+`Celo-HaiTi/celoht-smart-contracts/deployments/celoSepolia.json`. This file —
+not this document — is the value the code actually reads.
 
 USDm (settlement asset): `0xdE9e4C3ce781b4bA68120d6261cbad65ce0aB00b`.
 Treasuries (general/education/reforestation/governance) all currently point
 to the same confirmed CeloHT Treasury Safe: `0xd856e0599cc49C9cef6C358d2c2f064112A6b384`.
 
 ## ABIs
-Not included in this repository — see `abis/README.md`. **The event and
-argument names referenced in `src/indexing/persist.ts` are placeholders**
-pending the real compiled ABI and must be verified/corrected before
-production use.
+
+The five files in `abis/` are compiled Hardhat artifacts generated from the
+authoritative smart-contract repository. The loader refuses missing or empty
+artifacts. Event names and parameter names used by the decoder are therefore
+source-derived rather than hand-written guesses.

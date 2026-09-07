@@ -21,14 +21,18 @@ async function main(): Promise<void> {
     try {
       const abi = loadAbi(contract);
       const address = contractAddress(meta, contract);
-      await ensureCheckpoint({
-        chainId: meta.chainId,
-        contractName: contract,
-        displayName: CONTRACT_DISPLAY_NAMES[contract],
-        contractAddress: address,
-        deploymentBlock: deploymentBlock(meta, contract),
-      });
-      targets.push({ contract, contractAddress: address, abi });
+      if (!env.DRY_RUN) {
+        await ensureCheckpoint({
+          chainId: meta.chainId,
+          contractName: contract,
+          displayName: CONTRACT_DISPLAY_NAMES[contract],
+          contractAddress: address,
+          deploymentBlock: deploymentBlock(meta, contract),
+          startBlock: env.START_BLOCK,
+          network: meta.network,
+        });
+      }
+      targets.push({ contract, contractAddress: address, abi, deploymentBlock: deploymentBlock(meta, contract) });
       logger.info("contract_ready", { contract, address });
     } catch (err) {
       if (err instanceof AbiLoadError) {
@@ -43,8 +47,10 @@ async function main(): Promise<void> {
     throw new Error("No contracts are indexable (no ABI files present). Populate abis/ before starting. See abis/README.md.");
   }
 
-  const supabase = getServiceRoleClient();
-  await supabase.from("system_health").insert({ component: "indexer", status: "healthy", details: { network: meta.network } });
+  if (!env.DRY_RUN) {
+    const supabase = getServiceRoleClient();
+    await supabase.from("system_health").insert({ component: "indexer", status: "healthy", details: { network: meta.network } });
+  }
 
   const healthServer = startHealthServer({ client, meta, port: Number(process.env.PORT ?? 8080) });
 
@@ -56,6 +62,7 @@ async function main(): Promise<void> {
     maxRetries: env.RPC_MAX_RETRIES,
     pollIntervalMs: env.POLL_INTERVAL_MS,
     targets,
+    dryRun: env.DRY_RUN,
   });
 
   const shutdown = async (signal: string) => {

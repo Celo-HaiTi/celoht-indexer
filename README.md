@@ -1,39 +1,30 @@
-# ABIs
+# CeloHT Indexer
 
-This directory must contain the exact compiled ABI JSON files from the
-authoritative source of truth:
+Production-oriented Celo Sepolia blockchain synchronizer for CeloHT. It reads verified contract events, validates and decodes them, persists canonical provenance in Supabase, and resumes from durable checkpoints.
 
-https://github.com/Celo-HaiTi/celoht-smart-contracts
+## Verified deployment
 
-Required files (Hardhat/Foundry artifact `.abi.json` or extracted ABI arrays):
+The checked-in `deployments/celoSepolia.json` is copied from `Celo-HaiTi/celoht-smart-contracts`. The network is Celo Sepolia, chain ID `11142220`, with RPC verification required at startup. Mainnet is deliberately disabled until an official mainnet deployment manifest and ABI set are reviewed.
 
-- CeloHTAgentRegistry.json
-- CeloHTServicePayments.json
-- CeloHTEducation.json
-- CeloHTReforestation.json
-- CeloHTGovernance.json
+ABIs in `abis/` are generated Hardhat artifacts from the authoritative smart-contract source. The loader fails closed if any required ABI is missing or malformed.
 
-## Why they are not included here
+## Events
 
-This indexer never hand-writes or guesses an ABI, an event name, or an event
-signature — the project's global principles ("no fake blockchain data",
-"never guess event names") prohibit it. I do not have network/GitHub access
-in this environment, so I could not fetch the real compiled ABI artifacts
-from `celoht-smart-contracts` to embed here.
+Only events present in the deployed contract ABIs are accepted: Agent Registry (`AgentRegistered`, `AgentStatusUpdated`, `AgentVerificationUpdated`, `RegistrationFeeUpdated`, `TreasuryUpdated`), Service Payments (`ServicePaid`, `PaymentDistributed`, `ServicePriceUpdated`, `TreasuryUpdated`, `SplitUpdated`), Education (`CertificateFeePaid`, `CertificateIssued`, `CertificateRevoked`, `IssuerAuthorizationChanged`, `CertificateFeeUpdated`, `TreasuryUpdated`), Reforestation (`DonationReceived`, `TreasuryUpdated`), and Governance (`ProposalCreated`, `VoteCast`, `ProposalFinalized`, `ParticipationFeeUpdated`, `TreasuryUpdated`, `ProposerAuthorizationChanged`). OpenZeppelin role events are also decoded when present in the compiled ABI.
 
-## What happens if a file is missing
-
-`src/config/abiLoader.ts` fails closed: on startup, the indexer refuses to
-begin syncing any contract whose ABI file is absent, and refuses to start
-Mainnet indexing until Mainnet deployment metadata AND ABIs both exist. It
-never falls back to a partial or fabricated ABI.
-
-## How to populate this directory
+## Run
 
 ```bash
-# from a checkout of Celo-HaiTi/celoht-smart-contracts, after `npx hardhat compile`
-cp artifacts/contracts/CeloHTAgentRegistry.sol/CeloHTAgentRegistry.json \
-   /path/to/celoht-indexer/abis/CeloHTAgentRegistry.json
-# (repeat for the other four contracts, or write a small sync script that
-# extracts just the `abi` field from each Hardhat artifact)
+npm ci
+cp .env.example .env
+npm run typecheck && npm test && npm run build
+npm start
 ```
+
+Use `DRY_RUN=true` to scan and decode without writing events or checkpoints. Use `START_BLOCK` to choose a resume point; it is never allowed before a contract's verified deployment block. See [CONFIGURATION.md](CONFIGURATION.md), [OPERATIONS.md](OPERATIONS.md), and [DEPLOYMENT.md](DEPLOYMENT.md).
+
+Health is exposed at `GET /health` on port `PORT` or `8080`.
+
+## Scope
+
+This repository owns blockchain synchronization only. It does not authenticate users, submit transactions, create application records, verify real-world impact, or write backend-owned Supabase tables.

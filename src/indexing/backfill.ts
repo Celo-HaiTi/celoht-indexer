@@ -17,6 +17,7 @@ export interface BackfillParams {
   toBlock: bigint; // last confirmed block, inclusive
   batchSize: number;
   maxRetries: number;
+  dryRun?: boolean;
 }
 
 /**
@@ -53,8 +54,22 @@ export async function runBackfill(params: BackfillParams): Promise<void> {
 
       for (const log of logs) {
         try {
-          const decoded = decodeLog({ log, abi, chainId, contractAddress });
-          await persistEvent(decoded, contract);
+          const block = await withRetry(
+            () => client.getBlock({ blockNumber: log.blockNumber as bigint }),
+            { maxRetries, label: `getBlock(${log.blockNumber})` }
+          );
+          const decoded = decodeLog({
+            log,
+            abi,
+            chainId,
+            contractAddress,
+            blockTimestamp: block.timestamp,
+          });
+          if (params.dryRun) {
+            logger.info("dry_run_event", { contract, event: decoded.eventName, block: decoded.blockNumber.toString() });
+          } else {
+            await persistEvent(decoded, contract);
+          }
         } catch (err) {
           if (err instanceof MalformedEventError) {
             logger.error("malformed_event_skipped", {
@@ -69,7 +84,7 @@ export async function runBackfill(params: BackfillParams): Promise<void> {
         }
       }
 
-      await updateCheckpointProgress({
+      if (!params.dryRun) await updateCheckpointProgress({
         chainId,
         contractAddress,
         lastProcessedBlock: chunkEnd,
@@ -79,7 +94,9 @@ export async function runBackfill(params: BackfillParams): Promise<void> {
       logger.info("backfill_chunk_complete", { contract, from: cursor.toString(), to: chunkEnd.toString(), events: logs.length });
       cursor = chunkEnd + 1n;
     } catch (err) {
-      await recordCheckpointError({ chainId, contractAddress, errorMessage: String(err) });
+      if (!params.dryRun) {
+        await recordCheckpointError({ chainId, contractAddress, errorMessage: String(err) });
+      }
       throw err;
     }
   }
