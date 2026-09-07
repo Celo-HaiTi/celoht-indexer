@@ -2,6 +2,7 @@
   "network": "celoSepolia",
   "chainId": 11142220,
   "deployer": "0xAC4F2AE7127150eAf411E7Be774531af9c94Bb66",
+  "protocolAdmin": "0xAC4F2AE7127150eAf411E7Be774531af9c94Bb66",
   "usdm": "0xdE9e4C3ce781b4bA68120d6261cbad65ce0aB00b",
   "generalTreasury": "0xd856e0599cc49C9cef6C358d2c2f064112A6b384",
   "educationTreasury": "0xd856e0599cc49C9cef6C358d2c2f064112A6b384",
@@ -38,7 +39,15 @@
   "optimizerEnabled": true,
   "optimizerRuns": 200,
   "verification": "VERIFIED",
+  "verificationStatus": "VERIFIED",
   "verificationSource": "Celo Sepolia Blockscout",
+  "abiReferences": {
+    "agentRegistry": "artifacts/contracts/CeloHTAgentRegistry.sol/CeloHTAgentRegistry.json",
+    "servicePayments": "artifacts/contracts/CeloHTServicePayments.sol/CeloHTServicePayments.json",
+    "education": "artifacts/contracts/CeloHTEducation.sol/CeloHTEducation.json",
+    "reforestation": "artifacts/contracts/CeloHTReforestation.sol/CeloHTReforestation.json",
+    "governance": "artifacts/contracts/CeloHTGovernance.sol/CeloHTGovernance.json"
+  },
   "gitCommit": null,
   "metadataSource": "Public Celo Sepolia RPC and Blockscout transaction data; gitCommit was not available from the deployment record."
 }

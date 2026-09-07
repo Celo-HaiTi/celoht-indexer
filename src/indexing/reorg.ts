@@ -24,26 +24,26 @@ export async function detectAndHandleReorg(params: {
   let candidate = params.lastProcessedBlock;
   let steps = 0;
 
-  while (steps < maxLookback && candidate > 0n) {
+  while (steps < maxLookback && candidate >= 0n) {
     const { data: storedRows, error } = await supabase
-      .from("blockchain_transactions")
-      .select("block_hash")
+      .from("indexed_blocks")
+      .select("block_number, block_hash")
       .eq("chain_id", params.chainId)
-      .eq("contract_address", params.contractAddress)
-      .eq("block_number", candidate.toString())
+      .lte("block_number", candidate.toString())
+      .order("block_number", { ascending: false })
       .limit(1);
     if (error) throw error;
 
     if (!storedRows || storedRows.length === 0) {
-      // No stored events at this height for this contract — nothing to
-      // validate here; treat the block itself as the boundary and verify
-      // via chain block hash comparison isn't necessary without stored data.
-      candidate -= 1n;
+      // A checkpoint without a durable block anchor cannot be verified safely.
+      // This is expected only for databases created before the block ledger.
+      candidate = 0n;
       steps += 1;
       continue;
     }
 
-    const chainBlock = await params.client.getBlock({ blockNumber: candidate });
+    const storedBlockNumber = BigInt(storedRows[0]?.block_number);
+    const chainBlock = await params.client.getBlock({ blockNumber: storedBlockNumber });
     const storedHash = storedRows[0]?.block_hash;
 
     if (chainBlock.hash === storedHash) {
@@ -51,20 +51,20 @@ export async function detectAndHandleReorg(params: {
       if (steps > 0) {
         logger.warn("reorg_detected", {
           contract: params.contractAddress,
-          invalidatedFrom: (candidate + 1n).toString(),
-          safeBlock: candidate.toString(),
+          invalidatedFrom: (storedBlockNumber + 1n).toString(),
+          safeBlock: storedBlockNumber.toString(),
         });
         await rollbackCheckpoint({
           chainId: params.chainId,
           contractAddress: params.contractAddress,
-          safeBlock: candidate,
+          safeBlock: storedBlockNumber,
         });
-        return { reorgDetected: true, safeBlock: candidate };
+        return { reorgDetected: true, safeBlock: storedBlockNumber };
       }
-      return { reorgDetected: false, safeBlock: candidate };
+      return { reorgDetected: false, safeBlock: storedBlockNumber };
     }
 
-    candidate -= 1n;
+    candidate = storedBlockNumber - 1n;
     steps += 1;
   }
 

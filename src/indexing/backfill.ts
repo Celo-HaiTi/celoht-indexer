@@ -3,14 +3,15 @@ import { withRetry } from "@/chain/retry";
 import { decodeLog, MalformedEventError } from "@/indexing/eventDecoder";
 import { persistEvent } from "@/indexing/persist";
 import { updateCheckpointProgress, recordCheckpointError } from "@/db/checkpoints";
+import { persistIndexedBlock } from "@/db/canonical";
 import { logger } from "@/util/logger";
 import type { AbiItem } from "@/config/abiLoader";
-import type { ContractName } from "@/config/network";
+import type { IndexTargetName } from "@/config/network";
 
 export interface BackfillParams {
   client: PublicClient;
   chainId: number;
-  contract: ContractName;
+  contract: IndexTargetName;
   contractAddress: `0x${string}`;
   abi: AbiItem[];
   fromBlock: bigint;
@@ -64,6 +65,7 @@ export async function runBackfill(params: BackfillParams): Promise<void> {
             chainId,
             contractAddress,
             blockTimestamp: block.timestamp,
+            parentHash: block.parentHash,
           });
           if (params.dryRun) {
             logger.info("dry_run_event", { contract, event: decoded.eventName, block: decoded.blockNumber.toString() });
@@ -84,6 +86,20 @@ export async function runBackfill(params: BackfillParams): Promise<void> {
         }
       }
 
+      if (!params.dryRun) {
+        const endBlock = await withRetry(
+          () => client.getBlock({ blockNumber: chunkEnd }),
+          { maxRetries, label: `getBlock(${chunkEnd})` }
+        );
+        await persistIndexedBlock({
+          chainId,
+          blockNumber: chunkEnd,
+          blockHash: endBlock.hash,
+          parentHash: endBlock.parentHash,
+          blockTimestamp: endBlock.timestamp,
+        });
+      }
+
       if (!params.dryRun) await updateCheckpointProgress({
         chainId,
         contractAddress,
@@ -95,7 +111,11 @@ export async function runBackfill(params: BackfillParams): Promise<void> {
       cursor = chunkEnd + 1n;
     } catch (err) {
       if (!params.dryRun) {
-        await recordCheckpointError({ chainId, contractAddress, errorMessage: String(err) });
+        try {
+          await recordCheckpointError({ chainId, contractAddress, errorMessage: String(err) });
+        } catch (checkpointError) {
+          logger.error("checkpoint_error_record_failed", { contract, error: String(checkpointError) });
+        }
       }
       throw err;
     }

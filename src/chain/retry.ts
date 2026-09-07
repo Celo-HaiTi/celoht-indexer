@@ -7,9 +7,10 @@ import { logger } from "@/util/logger";
  */
 export async function withRetry<T>(
   fn: () => Promise<T>,
-  opts: { maxRetries: number; baseDelayMs?: number; label: string }
+  opts: { maxRetries: number; baseDelayMs?: number; maxDelayMs?: number; label: string }
 ): Promise<T> {
   const baseDelay = opts.baseDelayMs ?? 500;
+  const maxDelay = opts.maxDelayMs ?? 10_000;
   let lastError: unknown;
 
   for (let attempt = 0; attempt <= opts.maxRetries; attempt++) {
@@ -18,7 +19,7 @@ export async function withRetry<T>(
     } catch (err) {
       lastError = err;
       if (attempt === opts.maxRetries) break;
-      const delay = baseDelay * 2 ** attempt;
+      const delay = Math.min(baseDelay * 2 ** attempt, maxDelay);
       logger.warn("rpc_retry", { label: opts.label, attempt, delayMs: delay, error: String(err) });
       await new Promise((resolve) => setTimeout(resolve, delay));
     }

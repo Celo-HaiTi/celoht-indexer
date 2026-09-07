@@ -11,7 +11,7 @@ abis/*.json                   (compiled artifacts from the official source)
    src/chain      ->  RPC client, verified against declared chainId, retry/backoff
         |
         v
-   src/indexing   ->  decode -> validate -> persist, backfill + live poll loop, reorg handling
+     src/indexing   ->  decode -> validate -> persist, USDm transfers, backfill + live poll loop, reorg handling
         |
         v
      src/db         ->  canonical Supabase ledger, compatibility rows, checkpoints
@@ -30,6 +30,11 @@ Supabase schema supports them. Idempotency is keyed by
 `(chain_id, transaction_hash, log_index)` and checkpoints advance only after a
 whole log range succeeds. Reorg checks compare stored block hashes and roll
 back invalidated events before replay.
+
+The five domain event ledgers and `token_transfers` are populated from the same
+lossless decoded event and share the canonical event identity. USDm is indexed
+only at the official manifest address; CELO is never treated as a settlement
+asset.
 
 This process never becomes an application backend: no user authentication, no
 transaction signing, no admin workflows, and no backend-owned content writes.

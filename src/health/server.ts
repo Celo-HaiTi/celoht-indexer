@@ -13,7 +13,7 @@ import { logger } from "@/util/logger";
  */
 export function startHealthServer(params: { client: PublicClient; meta: DeploymentMetadata; port: number }) {
   const server = createServer(async (req, res) => {
-    if (req.url !== "/health") {
+    if (req.url !== "/health" && req.url !== "/readyz") {
       res.writeHead(404).end();
       return;
     }
@@ -61,8 +61,9 @@ export function startHealthServer(params: { client: PublicClient; meta: Deployme
         })
       );
     } catch (err) {
+      logger.error("health_check_failed", { error: String(err) });
       res.writeHead(503, { "content-type": "application/json" }).end(
-        JSON.stringify({ status: "down", reason: "unexpected_error", error: String(err) })
+        JSON.stringify({ status: "down", reason: "unexpected_error" })
       );
     }
   });

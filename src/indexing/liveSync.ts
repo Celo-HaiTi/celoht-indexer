@@ -5,10 +5,10 @@ import { detectAndHandleReorg } from "@/indexing/reorg";
 import { getCheckpoint } from "@/db/checkpoints";
 import { logger } from "@/util/logger";
 import type { AbiItem } from "@/config/abiLoader";
-import type { ContractName } from "@/config/network";
+import type { IndexTargetName } from "@/config/network";
 
 export interface SyncTarget {
-  contract: ContractName;
+  contract: IndexTargetName;
   contractAddress: `0x${string}`;
   abi: AbiItem[];
   deploymentBlock: number;

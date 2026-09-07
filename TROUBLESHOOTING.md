@@ -13,12 +13,10 @@ than index against a mismatched chain.
 reorg. Investigate manually; do not raise `maxLookback` casually without
 verifying the chain's actual reorg depth.
 
-**Derived table (agent_transactions/governance_activity/etc.) rows are
-missing even though blockchain_transactions has rows** — likely an event
-or argument name mismatch in `src/indexing/persist.ts` against the real
-ABI (see the warning comment at the top of that file). Check the warn-level
-logs (`*_missing_fields`, `vote_cast_unknown_proposal`,
-`agent_registry_event_no_matching_agent`) for specifics.
+**A domain event or transfer row is missing** — inspect `blockchain_events`
+first. The raw ABI arguments there are authoritative; malformed logs are
+rejected and a missing optional projection field is never replaced with a
+fabricated value. Check warn-level logs for the affected transaction and log.
 
 **Health endpoint returns 503** — check the JSON body's `reason` field:
 `chain_id_mismatch` or `database_unreachable` point directly at the failing

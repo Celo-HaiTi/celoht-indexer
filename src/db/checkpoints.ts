@@ -1,5 +1,5 @@
 import { getServiceRoleClient } from "@/db/supabaseClient";
-import type { ContractName } from "@/config/network";
+import type { IndexTargetName } from "@/config/network";
 import { ensureCanonicalContract, rollbackCanonical, updateCanonicalProgress } from "@/db/canonical";
 
 export interface CheckpointRow {
@@ -17,13 +17,18 @@ export interface CheckpointRow {
  */
 export async function ensureCheckpoint(params: {
   chainId: number;
-  contractName: ContractName;
+  contractName: IndexTargetName;
   displayName: string;
   contractAddress: string;
   deploymentBlock: number;
   startBlock?: number;
   network?: string;
 }): Promise<void> {
+  if (params.startBlock !== undefined && params.startBlock < params.deploymentBlock) {
+    throw new Error(
+      `START_BLOCK ${params.startBlock} is before the verified deployment block ${params.deploymentBlock} for ${params.displayName}.`
+    );
+  }
   await ensureCanonicalContract({
     chainId: params.chainId,
     network: params.network ?? "celoSepolia",
@@ -45,7 +50,7 @@ export async function ensureCheckpoint(params: {
     chain_id: params.chainId,
     contract_name: params.displayName,
     contract_address: params.contractAddress,
-    last_processed_block: Math.max(params.deploymentBlock, params.startBlock ?? params.deploymentBlock) - 1,
+    last_processed_block: Math.max(0, Math.max(params.deploymentBlock, params.startBlock ?? params.deploymentBlock) - 1),
     sync_status: "idle",
   });
   if (insertError) throw insertError;
@@ -126,6 +131,22 @@ export async function rollbackCheckpoint(params: {
     .eq("contract_address", params.contractAddress)
     .gt("block_number", params.safeBlock.toString());
   if (deleteError) throw deleteError;
+  const { error: tokenError } = await supabase
+    .from("token_transfers")
+    .delete()
+    .eq("chain_id", params.chainId)
+    .gt("block_number", params.safeBlock.toString());
+  if (tokenError) throw tokenError;
+  for (const table of ["agent_events", "service_payment_events", "education_events", "reforestation_events", "governance_events"]) {
+    const { error } = await supabase.from(table).delete().eq("chain_id", params.chainId).gt("block_number", params.safeBlock.toString());
+    if (error) throw error;
+  }
+  const { error: blocksError } = await supabase
+    .from("indexed_blocks")
+    .delete()
+    .eq("chain_id", params.chainId)
+    .gt("block_number", params.safeBlock.toString());
+  if (blocksError) throw blocksError;
   await rollbackCanonical(params);
 
   const { error: updateError } = await supabase

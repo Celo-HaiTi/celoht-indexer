@@ -42,5 +42,11 @@ describe("getEnv (fail closed)", () => {
     const env = getEnv();
     expect(env.CONFIRMATIONS).toBe(5);
     expect(env.BACKFILL_BATCH_SIZE).toBe(2000);
+    expect(env.USDM_START_BLOCK).toBe(0);
+  });
+
+  it("rejects a malformed explicit USDm lower bound", () => {
+    Object.assign(process.env, VALID_ENV, { USDM_START_BLOCK: "-1" });
+    expect(() => getEnv()).toThrow(EnvConfigError);
   });
 });

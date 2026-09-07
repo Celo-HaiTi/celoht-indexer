@@ -59,7 +59,9 @@ export const DeploymentMetadataSchema = z.object({
   optimizerEnabled: z.boolean(),
   optimizerRuns: z.number().int().nonnegative(),
   verification: z.string(),
+  verificationStatus: z.string().optional(),
   verificationSource: z.string(),
+  abiReferences: z.record(z.string()).optional(),
   gitCommit: z.string().nullable(),
   metadataSource: z.string(),
 });
@@ -72,6 +74,8 @@ export type ContractName =
   | "education"
   | "reforestation"
   | "governance";
+
+export type IndexTargetName = ContractName | "usdm";
 
 export const CONTRACT_NAMES: ContractName[] = [
   "agentRegistry",

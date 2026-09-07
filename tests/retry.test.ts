@@ -25,4 +25,21 @@ describe("withRetry", () => {
     await expect(withRetry(fn, { maxRetries: 2, baseDelayMs: 1, label: "test" })).rejects.toThrow("permanent failure");
     expect(fn).toHaveBeenCalledTimes(3);
   });
+
+  it("caps exponential backoff", async () => {
+    vi.useFakeTimers();
+    let calls = 0;
+    const promise = withRetry(
+      async () => {
+        calls += 1;
+        throw new Error("permanent failure");
+      },
+      { maxRetries: 2, baseDelayMs: 100, maxDelayMs: 150, label: "bounded" }
+    );
+    const rejection = expect(promise).rejects.toThrow("permanent failure");
+    await vi.advanceTimersByTimeAsync(300);
+    await rejection;
+    expect(calls).toBe(3);
+    vi.useRealTimers();
+  });
 });

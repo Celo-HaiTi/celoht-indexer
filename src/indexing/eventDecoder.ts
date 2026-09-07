@@ -16,6 +16,7 @@ export interface DecodedEvent {
   logIndex: number;
   blockNumber: bigint;
   blockHash: string;
+  parentHash: string | null;
   blockTimestamp: bigint | null;
   eventName: string;
   args: Record<string, unknown>;
@@ -70,6 +71,7 @@ export function decodeLog(params: {
   chainId: number;
   contractAddress: string;
   blockTimestamp?: bigint | null;
+  parentHash?: string | null;
 }): DecodedEvent {
   validateRawLog(params.log, params.chainId, params.contractAddress);
 
@@ -95,6 +97,7 @@ export function decodeLog(params: {
     logIndex: Number(params.log.logIndex),
     blockNumber: params.log.blockNumber as bigint,
     blockHash: params.log.blockHash as string,
+    parentHash: params.parentHash ?? null,
     blockTimestamp: params.blockTimestamp ?? null,
     eventName: decoded.eventName,
     args: (decoded.args ?? {}) as Record<string, unknown>,

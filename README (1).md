@@ -35,32 +35,9 @@ npm start
 - Full test suite (`tests/`) and CI (`.github/workflows/ci.yml`).
 
 ## Documentation
-`docs/ARCHITECTURE.md`, `docs/INDEXING.md`, `docs/CONTRACTS.md`,
-`docs/NETWORKS.md`, `docs/DATABASE.md`, `docs/SECURITY.md`,
-`docs/OPERATIONS.md`, `docs/DEPLOYMENT.md`, `docs/ENVIRONMENT.md`,
-`docs/TROUBLESHOOTING.md`, `docs/CONTRIBUTING.md`.
+See the root documentation files, especially `DATA_MODEL.md`, `INDEXING.md`,
+`OPERATIONS.md`, `SECURITY.md`, and `DEPLOYMENT.md`.
 
-## Known blocker before production use
-**ABI files are not included** (no network access to fetch them from
-`Celo-HaiTi/celoht-smart-contracts` in the environment this was built in).
-Without them, `main()` skips every contract and refuses to start
-(`No contracts are indexable`). Populate `abis/` first. Additionally, the
-specific event/argument names assumed in `src/indexing/persist.ts` are
-placeholders — see the warning comment at the top of that file — and must
-be reconciled against the real ABI before the derived tables
-(`agent_transactions`, `reforestation_contributions`, `governance_*`,
-`agents.on_chain_registry_status`) can be trusted.
-
-## Verification status (Phase 3)
-- [x] Builds, typechecks, lints under strict TypeScript.
-- [x] Tests cover: fail-closed network/env config, Mainnet exclusion,
-      malformed-log rejection, ABI-missing fail-closed behavior, retry
-      backoff behavior.
-- [x] Idempotent persistence via DB-level unique constraints, not
-      application-level guessing.
-- [x] Reorg detection walks back to a verified canonical block before
-      resuming, and deletes invalidated rows rather than trusting them.
-- [ ] Full backfill + live sync against real Celo Sepolia data (requires
-      the real ABIs — see blocker above).
-- [ ] Cross-repository verification against `celoht-backend` and
-      `celoht-supabase` in a shared staging environment.
+This repository includes the verified ABI set and fail-closed Celo Sepolia
+deployment manifest. A live staging backfill still requires operator-provided
+RPC and Supabase credentials and an applied database migration.

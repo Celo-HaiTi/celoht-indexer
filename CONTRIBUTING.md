@@ -15,8 +15,8 @@ npm run build
   The ESLint rule in `.eslintrc.json` flags obvious hex-address literals as
   a backstop, but reviewers should still check for hand-typed event names.
 - Never write to a BACKEND OWNED table (see
-  `celoht-supabase/docs/OWNERSHIP.md` and `docs/DATABASE.md`).
+  `celoht-supabase/docs/OWNERSHIP.md` and `DATABASE.md`).
 - Any new derived-table write must go through an upsert keyed on a natural
   blockchain identity to preserve idempotency.
 - Do not add Mainnet support outside the reviewed process in
-  `docs/NETWORKS.md`.
+  `NETWORKS.md`.

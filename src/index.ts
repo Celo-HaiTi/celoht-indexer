@@ -1,6 +1,7 @@
 import { getEnv } from "@/config/env";
 import { loadDeploymentMetadata, CONTRACT_NAMES, CONTRACT_DISPLAY_NAMES, contractAddress, deploymentBlock } from "@/config/network";
 import { loadAbi, AbiLoadError } from "@/config/abiLoader";
+import { USDM_ABI } from "@/config/token";
 import { createVerifiedClient } from "@/chain/provider";
 import { ensureCheckpoint } from "@/db/checkpoints";
 import { startLiveSyncLoop, type SyncTarget } from "@/indexing/liveSync";
@@ -42,6 +43,21 @@ async function main(): Promise<void> {
       throw err;
     }
   }
+
+  const usdmStartBlock = env.USDM_START_BLOCK;
+  if (!env.DRY_RUN) {
+    await ensureCheckpoint({
+      chainId: meta.chainId,
+      contractName: "usdm",
+      displayName: "USDm",
+      contractAddress: meta.usdm,
+      deploymentBlock: 0,
+      startBlock: usdmStartBlock,
+      network: meta.network,
+    });
+  }
+  targets.push({ contract: "usdm", contractAddress: meta.usdm as `0x${string}`, abi: USDM_ABI, deploymentBlock: 0 });
+  logger.info("token_ready", { token: "USDm", address: meta.usdm, startBlock: usdmStartBlock });
 
   if (targets.length === 0) {
     throw new Error("No contracts are indexable (no ABI files present). Populate abis/ before starting. See abis/README.md.");

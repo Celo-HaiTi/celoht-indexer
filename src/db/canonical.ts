@@ -1,10 +1,10 @@
 import type { DecodedEvent } from "@/indexing/eventDecoder";
-import type { ContractName } from "@/config/network";
+import type { IndexTargetName } from "@/config/network";
 import { getServiceRoleClient } from "@/db/supabaseClient";
 
 const METADATA_REF = "Celo-HaiTi/celoht-smart-contracts/deployments/celoSepolia.json";
 
-export async function persistCanonicalEvent(event: DecodedEvent, contract: ContractName): Promise<void> {
+export async function persistCanonicalEvent(event: DecodedEvent, contract: IndexTargetName): Promise<void> {
   const supabase = getServiceRoleClient();
   const { data: contractRow, error: contractError } = await supabase
     .from("contracts")
@@ -19,6 +19,7 @@ export async function persistCanonicalEvent(event: DecodedEvent, contract: Contr
       chain_id: event.chainId,
       block_number: event.blockNumber.toString(),
       block_hash: event.blockHash,
+      parent_hash: event.parentHash,
       block_time: event.blockTimestamp === null ? null : new Date(Number(event.blockTimestamp) * 1000).toISOString(),
       confirmed_at: new Date().toISOString(),
     },
@@ -34,6 +35,7 @@ export async function persistCanonicalEvent(event: DecodedEvent, contract: Contr
         transaction_hash: event.transactionHash,
         block_number: event.blockNumber.toString(),
         block_hash: event.blockHash,
+        transaction_index: event.transactionIndex,
         confirmation_status: "confirmed",
       },
       { onConflict: "chain_id,transaction_hash" }
@@ -50,6 +52,7 @@ export async function persistCanonicalEvent(event: DecodedEvent, contract: Contr
       block_number: event.blockNumber.toString(),
       block_hash: event.blockHash,
       transaction_hash: event.transactionHash,
+      transaction_index: event.transactionIndex,
       log_index: event.logIndex,
       event_name: event.eventName,
       event_type: contract,
@@ -63,6 +66,28 @@ export async function persistCanonicalEvent(event: DecodedEvent, contract: Contr
     { onConflict: "chain_id,transaction_hash,log_index" }
   );
   if (eventError) throw eventError;
+}
+
+export async function persistIndexedBlock(params: {
+  chainId: number;
+  blockNumber: bigint;
+  blockHash: string | null;
+  parentHash: string | null;
+  blockTimestamp: bigint;
+}): Promise<void> {
+  if (!params.blockHash) throw new Error(`RPC returned no hash for block ${params.blockNumber}`);
+  const { error } = await getServiceRoleClient().from("indexed_blocks").upsert(
+    {
+      chain_id: params.chainId,
+      block_number: params.blockNumber.toString(),
+      block_hash: params.blockHash,
+      parent_hash: params.parentHash,
+      block_time: new Date(Number(params.blockTimestamp) * 1000).toISOString(),
+      confirmed_at: new Date().toISOString(),
+    },
+    { onConflict: "chain_id,block_number" }
+  );
+  if (error) throw error;
 }
 
 export async function ensureCanonicalContract(params: {

@@ -1,0 +1,34 @@
+services:
+  - type: web
+    name: celoht-indexer
+    runtime: node
+    plan: starter
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /readyz
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: CELO_NETWORK
+        value: celoSepolia
+      - key: CONFIRMATIONS
+        value: 5
+      - key: BACKFILL_BATCH_SIZE
+        value: 2000
+      - key: POLL_INTERVAL_MS
+        value: 15000
+      - key: RPC_MAX_RETRIES
+        value: 5
+      - key: RPC_TIMEOUT_MS
+        value: 15000
+      - key: USDM_START_BLOCK
+        value: 0
+      - key: DRY_RUN
+        value: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: CELO_RPC_URL
+        sync: false

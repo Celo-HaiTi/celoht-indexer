@@ -34,14 +34,16 @@ re-backfill) can never create a duplicate.
 ## Confirmations
 `CONFIRMATIONS` (default 5) blocks are held back from the chain head before
 any block is treated as "confirmed" and eligible for indexing. Observed but
-unconfirmed blocks are never persisted.
+unconfirmed blocks are never persisted. Every persisted event records its
+contract, block, parent block, transaction, log position, timestamp, and
+confirmation state.
 
 ## Reorg handling
 See `src/indexing/reorg.ts`. Before extending a checkpoint forward, the
-indexer verifies the stored block hash at `last_processed_block` still
-matches the chain. On mismatch, it walks backward (up to 50 blocks by
-default) to find a canonical block, deletes any `blockchain_transactions`
-rows above that point for the affected contract, and resumes from there.
+indexer verifies durable `indexed_blocks` anchors, including ranges with no
+contract events. On mismatch, it walks backward through anchors (up to 50
+anchors by default), deletes invalidated rows, and resumes from the canonical
+anchor. An unusually deep reorg throws rather than guessing.
 An unusually deep reorg (beyond the lookback window) throws rather than
 guessing a rollback point.
 

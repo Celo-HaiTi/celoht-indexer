@@ -21,10 +21,10 @@ npm run typecheck && npm test && npm run build
 npm start
 ```
 
-Use `DRY_RUN=true` to scan and decode without writing events or checkpoints. Use `START_BLOCK` to choose a resume point; it is never allowed before a contract's verified deployment block. See [CONFIGURATION.md](CONFIGURATION.md), [OPERATIONS.md](OPERATIONS.md), and [DEPLOYMENT.md](DEPLOYMENT.md).
+Use `DRY_RUN=true` to scan and decode without writing events or checkpoints. Use `START_BLOCK` to choose a resume point; it is never allowed before a contract's verified deployment block. USDm has no deployment block in the official manifest, so its explicit scan lower bound is `USDM_START_BLOCK` (default `0`). See [CONFIGURATION.md](CONFIGURATION.md), [DATA_MODEL.md](DATA_MODEL.md), [OPERATIONS.md](OPERATIONS.md), and [DEPLOYMENT.md](DEPLOYMENT.md).
 
-Health is exposed at `GET /health` on port `PORT` or `8080`.
+Health and readiness are exposed at `GET /health` and `GET /readyz` on port `PORT` or `8080`.
 
 ## Scope
 
-This repository owns blockchain synchronization only. It does not authenticate users, submit transactions, create application records, verify real-world impact, or write backend-owned Supabase tables.
+This repository owns blockchain synchronization only. It indexes verified contract events and USDm transfers, but does not authenticate users, submit transactions, create application records, verify real-world impact, or write backend-owned Supabase tables.
