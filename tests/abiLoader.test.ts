@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { loadAbi, eventNamesFromAbi } from "@/config/abiLoader";
-import { AbiLoadError } from "@/config/abiLoader";
-import { loadUsdmAbi } from "@/config/token";
+import { loadUsdmAbi, VERIFIED_USDM_ABI_SHA256 } from "@/config/token";
 
 describe("loadAbi", () => {
   it("loads the compiled ABI from the authoritative artifact", () => {
@@ -21,7 +20,8 @@ describe("loadAbi", () => {
     ]));
   });
 
-  it("fails closed when the canonical USDm artifact is unavailable", () => {
-    expect(() => loadUsdmAbi()).toThrow(AbiLoadError);
+  it("loads the verified USDm implementation artifact", () => {
+    expect(VERIFIED_USDM_ABI_SHA256).toMatch(/^[0-9a-f]{64}$/);
+    expect(eventNamesFromAbi(loadUsdmAbi())).toContain("Transfer");
   });
 });

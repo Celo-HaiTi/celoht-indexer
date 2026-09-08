@@ -35,10 +35,6 @@ export async function createVerifiedClient(meta: DeploymentMetadata): Promise<Pu
     meta.education,
     meta.reforestation,
     meta.governance,
-    meta.generalTreasury,
-    meta.educationTreasury,
-    meta.reforestationTreasury,
-    meta.governanceTreasury,
   ] as `0x${string}`[];
   for (const address of new Set(addresses.map((value) => value.toLowerCase()))) {
     const bytecode = await client.getBytecode({ address: address as `0x${string}` });

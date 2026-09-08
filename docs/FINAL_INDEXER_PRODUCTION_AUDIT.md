@@ -12,9 +12,9 @@ Verified configuration, ABI loading, RPC verification/retry, event decoding, bac
 
 ## C. USDm ABI Source and Verification
 
-The canonical `celoht-smart-contracts` repository was inspected at commit `bdfc9ecf879f09418fb609b0695986b5dbe6ee27`. It contains `MockUSDm` as a test-only token, but does not publish the deployed USDm artifact for `0xdE9e4C3ce781b4bA68120d6261cbad65ce0aB00b`.
+The canonical `celoht-smart-contracts` repository was inspected at commit `bdfc9ecf879f09418fb609b0695986b5dbe6ee27`. Its public source does not publish the deployed proxy implementation artifact, so the verified Blockscout implementation artifact at `0xea3a7fcb6706db3ddebf8859307059d2601452e6` is pinned by SHA-256.
 
-The indexer now requires `abis/USDm.json`, validates that it is a real ABI, and requires the canonical `Transfer(address indexed,address indexed,uint256)` event. It has no mock or hand-authored fallback and fails closed when the file is missing.
+The indexer requires `abis/USDm.json`, validates its SHA-256 hash, requires the canonical `Transfer(address indexed,address indexed,uint256)` event and `decimals()` function. It has no mock or hand-authored fallback and fails closed when the artifact is missing or changed.
 
 ## D. USDm Contract and Network
 
@@ -58,8 +58,7 @@ README, configuration, operations, database, architecture, ABI, and this audit d
 
 ## N. Remaining Blockers
 
-1. The deployed canonical USDm ABI artifact is not published in the accessible canonical repository. It must be supplied as `abis/USDm.json` and verified against the deployed address and required event signature.
-2. The atomic migration/function and restart/reorg rehearsal still need execution against the target Supabase project, not only the isolated local PostgreSQL container.
+1. The atomic migration/function and restart/reorg rehearsal still need execution against the target Supabase project, not only the isolated local PostgreSQL container.
 
 ## O. Exact Verification Commands
 
@@ -77,4 +76,4 @@ POSTGRES_TEST_URL=postgresql://... npm run test:integration:failure
 
 **NOT PRODUCTION READY**
 
-The verdict remains blocked because the canonical deployed USDm ABI is not available and target Supabase/restart/reorg validation has not been executed.
+The USDm artifact blocker is resolved. The verdict remains blocked only because target Supabase/restart/reorg validation has not been executed.
