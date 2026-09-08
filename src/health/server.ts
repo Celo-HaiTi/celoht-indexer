@@ -20,7 +20,9 @@ export function startHealthServer(params: { client: PublicClient; meta: Deployme
 
     try {
       const env = getEnv();
+      const rpcStartedAt = performance.now();
       const [chainId, headBlock] = await Promise.all([params.client.getChainId(), params.client.getBlockNumber()]);
+      const rpcLatencyMs = Math.round(performance.now() - rpcStartedAt);
 
       if (chainId !== params.meta.chainId) {
         res.writeHead(503, { "content-type": "application/json" }).end(
@@ -30,10 +32,12 @@ export function startHealthServer(params: { client: PublicClient; meta: Deployme
       }
 
       const supabase = getServiceRoleClient();
+      const databaseStartedAt = performance.now();
       const { data: checkpoints, error } = await supabase
         .from("indexer_state")
-        .select("contract_name, last_processed_block, sync_status, last_error")
+        .select("contract_name, last_processed_block, latest_confirmed_block, sync_status, last_error, last_successful_sync_at")
         .eq("chain_id", params.meta.chainId);
+      const databaseLatencyMs = Math.round(performance.now() - databaseStartedAt);
 
       if (error) {
         res.writeHead(503, { "content-type": "application/json" }).end(
@@ -46,9 +50,12 @@ export function startHealthServer(params: { client: PublicClient; meta: Deployme
       const lag = (checkpoints ?? []).map((c) => ({
         contract: c.contract_name,
         lastProcessedBlock: c.last_processed_block,
-        blocksBehind: Number(headBlock) - Number(c.last_processed_block),
+        targetBlock: (headBlock - BigInt(env.CONFIRMATIONS)).toString(),
+        blocksBehind: Math.max(0, Number(headBlock - BigInt(env.CONFIRMATIONS)) - Number(c.last_processed_block)),
+        latestConfirmedBlock: c.latest_confirmed_block,
         syncStatus: c.sync_status,
         lastError: c.last_error,
+        lastSuccessfulSync: c.last_successful_sync_at,
       }));
 
       res.writeHead(anyErrored ? 503 : 200, { "content-type": "application/json" }).end(
@@ -56,7 +63,10 @@ export function startHealthServer(params: { client: PublicClient; meta: Deployme
           status: anyErrored ? "degraded" : "healthy",
           chainId,
           headBlock: headBlock.toString(),
+          targetBlock: (headBlock - BigInt(env.CONFIRMATIONS)).toString(),
           confirmations: env.CONFIRMATIONS,
+          rpc: { status: "healthy", latencyMs: rpcLatencyMs },
+          database: { status: "healthy", latencyMs: databaseLatencyMs },
           checkpoints: lag,
         })
       );

@@ -3,7 +3,6 @@ import { withRetry } from "@/chain/retry";
 import { decodeLog, MalformedEventError } from "@/indexing/eventDecoder";
 import { persistEvent } from "@/indexing/persist";
 import { updateCheckpointProgress, recordCheckpointError } from "@/db/checkpoints";
-import { persistIndexedBlock } from "@/db/canonical";
 import { logger } from "@/util/logger";
 import type { AbiItem } from "@/config/abiLoader";
 import type { IndexTargetName } from "@/config/network";
@@ -80,7 +79,7 @@ export async function runBackfill(params: BackfillParams): Promise<void> {
               logIndex: log.logIndex,
               error: err.message,
             });
-            continue; // never persist malformed data; skip just this log
+            throw err;
           }
           throw err;
         }
@@ -91,21 +90,16 @@ export async function runBackfill(params: BackfillParams): Promise<void> {
           () => client.getBlock({ blockNumber: chunkEnd }),
           { maxRetries, label: `getBlock(${chunkEnd})` }
         );
-        await persistIndexedBlock({
+        await updateCheckpointProgress({
           chainId,
-          blockNumber: chunkEnd,
-          blockHash: endBlock.hash,
+          contractAddress,
+          lastProcessedBlock: chunkEnd,
+          latestConfirmedBlock: toBlock,
+          blockHash: endBlock.hash as string,
           parentHash: endBlock.parentHash,
           blockTimestamp: endBlock.timestamp,
         });
       }
-
-      if (!params.dryRun) await updateCheckpointProgress({
-        chainId,
-        contractAddress,
-        lastProcessedBlock: chunkEnd,
-        latestConfirmedBlock: toBlock,
-      });
 
       logger.info("backfill_chunk_complete", { contract, from: cursor.toString(), to: chunkEnd.toString(), events: logs.length });
       cursor = chunkEnd + 1n;

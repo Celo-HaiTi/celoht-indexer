@@ -7,6 +7,7 @@ describe("loadDeploymentMetadata", () => {
     expect(meta.chainId).toBe(11142220);
     expect(meta.network).toBe("celoSepolia");
     expect(meta.agentRegistry).toMatch(/^0x[0-9a-fA-F]{40}$/);
+    expect(meta.canonicalRepositoryCommit).toBe("bdfc9ecf879f09418fb609b0695986b5dbe6ee27");
   });
 
   it("fails closed for an unlisted network (e.g. Mainnet)", () => {

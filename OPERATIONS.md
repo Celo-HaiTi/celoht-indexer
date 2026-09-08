@@ -8,6 +8,10 @@ npm run build
 npm start
 ```
 
+Before a release, run `npm run test:integration` with an isolated PostgreSQL
+database and an explicitly configured Celo Sepolia RPC. The command fails when
+either URL is missing; it never silently skips external integration checks.
+
 ## Health endpoint
 `GET http://localhost:8080/health` or `/readyz` (port from `$PORT`, default 8080)
 returns 200 with RPC/database status, chain head, per-contract indexed lag, and

@@ -49,5 +49,6 @@
     "governance": "artifacts/contracts/CeloHTGovernance.sol/CeloHTGovernance.json"
   },
   "gitCommit": null,
+  "canonicalRepositoryCommit": "bdfc9ecf879f09418fb609b0695986b5dbe6ee27",
   "metadataSource": "Public Celo Sepolia RPC and Blockscout transaction data; gitCommit was not available from the deployment record."
 }

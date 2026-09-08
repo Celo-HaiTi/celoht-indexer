@@ -31,10 +31,10 @@ Supabase schema supports them. Idempotency is keyed by
 whole log range succeeds. Reorg checks compare stored block hashes and roll
 back invalidated events before replay.
 
-The five domain event ledgers and `token_transfers` are populated from the same
-lossless decoded event and share the canonical event identity. USDm is indexed
-only at the official manifest address; CELO is never treated as a settlement
-asset.
+Compatibility projections are written only where the canonical Supabase
+ownership contract defines them. All decoded events, including USDm transfers,
+remain authoritative in `blockchain_events`; CELO is never treated as a
+settlement asset.
 
 This process never becomes an application backend: no user authentication, no
 transaction signing, no admin workflows, and no backend-owned content writes.

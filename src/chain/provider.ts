@@ -28,6 +28,28 @@ export async function createVerifiedClient(meta: DeploymentMetadata): Promise<Pu
     );
   }
 
+  const addresses = [
+    meta.usdm,
+    meta.agentRegistry,
+    meta.servicePayments,
+    meta.education,
+    meta.reforestation,
+    meta.governance,
+    meta.generalTreasury,
+    meta.educationTreasury,
+    meta.reforestationTreasury,
+    meta.governanceTreasury,
+  ] as `0x${string}`[];
+  for (const address of new Set(addresses.map((value) => value.toLowerCase()))) {
+    const bytecode = await client.getBytecode({ address: address as `0x${string}` });
+    if (!bytecode || bytecode === "0x") {
+      throw new NetworkConfigError(
+        `Deployment metadata address ${address} has no contract bytecode on chain ${meta.chainId}. ` +
+          "Refusing to index a wrong or undeployed contract."
+      );
+    }
+  }
+
   return client;
 }
 

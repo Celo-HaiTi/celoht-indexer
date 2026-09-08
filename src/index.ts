@@ -1,7 +1,7 @@
 import { getEnv } from "@/config/env";
 import { loadDeploymentMetadata, CONTRACT_NAMES, CONTRACT_DISPLAY_NAMES, contractAddress, deploymentBlock } from "@/config/network";
 import { loadAbi, AbiLoadError } from "@/config/abiLoader";
-import { USDM_ABI } from "@/config/token";
+import { loadUsdmAbi } from "@/config/token";
 import { createVerifiedClient } from "@/chain/provider";
 import { ensureCheckpoint } from "@/db/checkpoints";
 import { startLiveSyncLoop, type SyncTarget } from "@/indexing/liveSync";
@@ -29,6 +29,7 @@ async function main(): Promise<void> {
           displayName: CONTRACT_DISPLAY_NAMES[contract],
           contractAddress: address,
           deploymentBlock: deploymentBlock(meta, contract),
+          deploymentTxHash: meta.transactionHashes[contract],
           startBlock: env.START_BLOCK,
           network: meta.network,
         });
@@ -37,14 +38,15 @@ async function main(): Promise<void> {
       logger.info("contract_ready", { contract, address });
     } catch (err) {
       if (err instanceof AbiLoadError) {
-        logger.error("contract_skipped_missing_abi", { contract, error: err.message });
-        continue; // fail closed for THIS contract only; others can still proceed
+        logger.error("required_abi_unavailable", { contract, error: err.message });
+        throw err;
       }
       throw err;
     }
   }
 
   const usdmStartBlock = env.USDM_START_BLOCK;
+  const usdmAbi = loadUsdmAbi();
   if (!env.DRY_RUN) {
     await ensureCheckpoint({
       chainId: meta.chainId,
@@ -56,7 +58,7 @@ async function main(): Promise<void> {
       network: meta.network,
     });
   }
-  targets.push({ contract: "usdm", contractAddress: meta.usdm as `0x${string}`, abi: USDM_ABI, deploymentBlock: 0 });
+  targets.push({ contract: "usdm", contractAddress: meta.usdm as `0x${string}`, abi: usdmAbi, deploymentBlock: 0 });
   logger.info("token_ready", { token: "USDm", address: meta.usdm, startBlock: usdmStartBlock });
 
   if (targets.length === 0) {
@@ -64,8 +66,12 @@ async function main(): Promise<void> {
   }
 
   if (!env.DRY_RUN) {
-    const supabase = getServiceRoleClient();
-    await supabase.from("system_health").insert({ component: "indexer", status: "healthy", details: { network: meta.network } });
+    const { error } = await getServiceRoleClient().from("system_health").insert({
+      component: "indexer",
+      status: "healthy",
+      details: { network: meta.network, chainId: meta.chainId },
+    });
+    if (error) throw error;
   }
 
   const healthServer = startHealthServer({ client, meta, port: Number(process.env.PORT ?? 8080) });

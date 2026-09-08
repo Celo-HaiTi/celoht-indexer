@@ -28,6 +28,10 @@ export type AbiItem = Record<string, unknown>;
 
 export function loadAbi(contract: ContractName): AbiItem[] {
   const displayName = CONTRACT_DISPLAY_NAMES[contract];
+  return loadAbiFile(displayName);
+}
+
+export function loadAbiFile(displayName: string): AbiItem[] {
   const filePath = path.resolve(process.cwd(), "abis", `${displayName}.json`);
 
   if (!existsSync(filePath)) {

@@ -16,7 +16,6 @@ export async function persistEvent(event: DecodedEvent, contract: IndexTargetNam
         log_index: event.logIndex,
         block_number: event.blockNumber.toString(),
         block_hash: event.blockHash,
-        transaction_index: event.transactionIndex,
         event_name: event.eventName,
         event_data: {
           ...serializeArgs(event.args),
@@ -32,88 +31,15 @@ export async function persistEvent(event: DecodedEvent, contract: IndexTargetNam
   if (error) throw error;
   if (!row) throw new Error("Supabase did not return the persisted event id");
   await persistCanonicalEvent(event, contract);
-  await persistDomainEvent(event, contract);
-
-  if (contract === "usdm" && event.eventName === "Transfer") {
-    await persistTokenTransfer(row.id, event);
-  }
   if (contract === "agentRegistry") await persistAgentRegistration(event);
   if (contract === "governance") await persistGovernance(row.id, event);
-  if (contract === "servicePayments" || contract === "reforestation") {
+  if (contract === "servicePayments" || contract === "reforestation" || contract === "education" || contract === "usdm") {
     logger.info("legacy_projection_skipped", {
       contract,
       event: event.eventName,
-      reason: "verified event does not contain all legacy projection fields",
+      reason: "canonical event ledger is authoritative; no compatible projection is defined for this event",
     });
   }
-}
-
-async function persistDomainEvent(event: DecodedEvent, contract: IndexTargetName): Promise<void> {
-  const tableByContract: Partial<Record<IndexTargetName, string>> = {
-    agentRegistry: "agent_events",
-    servicePayments: "service_payment_events",
-    education: "education_events",
-    reforestation: "reforestation_events",
-    governance: "governance_events",
-  };
-  const table = tableByContract[contract];
-  if (!table) return;
-
-  const supabase = getServiceRoleClient();
-  const [{ data: contractRow, error: contractError }, { data: transaction, error: transactionError }] = await Promise.all([
-    supabase.from("contracts").select("id").eq("chain_id", event.chainId).eq("contract_address", event.contractAddress).single(),
-    supabase.from("indexed_transactions").select("id").eq("chain_id", event.chainId).eq("transaction_hash", event.transactionHash).single(),
-  ]);
-  if (contractError) throw contractError;
-  if (transactionError) throw transactionError;
-
-  const { error } = await supabase.from(table).upsert(
-    {
-      chain_id: event.chainId,
-      contract_id: contractRow.id,
-      transaction_id: transaction.id,
-      block_number: event.blockNumber.toString(),
-      block_hash: event.blockHash,
-      parent_hash: event.parentHash,
-      transaction_hash: event.transactionHash,
-      transaction_index: event.transactionIndex,
-      log_index: event.logIndex,
-      contract_address: event.contractAddress,
-      event_name: event.eventName,
-      event_type: contract,
-      block_timestamp: event.blockTimestamp === null ? null : new Date(Number(event.blockTimestamp) * 1000).toISOString(),
-      event_data: serializeArgs(event.args),
-      confirmation_status: "confirmed",
-    },
-    { onConflict: "chain_id,transaction_hash,log_index" }
-  );
-  if (error) throw error;
-}
-
-async function persistTokenTransfer(blockchainTransactionId: string, event: DecodedEvent): Promise<void> {
-  const { from, to, value } = event.args;
-  if (typeof from !== "string" || typeof to !== "string" || value === undefined) {
-    logger.warn("token_transfer_missing_fields", { transactionHash: event.transactionHash });
-    return;
-  }
-  const { error } = await getServiceRoleClient().from("token_transfers").upsert(
-    {
-      chain_id: event.chainId,
-      token_address: event.contractAddress,
-      blockchain_transaction_id: blockchainTransactionId,
-      transaction_hash: event.transactionHash,
-      log_index: event.logIndex,
-      block_number: event.blockNumber.toString(),
-      block_hash: event.blockHash,
-      from_address: from.toLowerCase(),
-      to_address: to.toLowerCase(),
-      amount: String(value),
-      asset_symbol: "USDm",
-      confirmation_status: "confirmed",
-    },
-    { onConflict: "chain_id,transaction_hash,log_index" }
-  );
-  if (error) throw error;
 }
 
 function serializeArgs(args: Record<string, unknown>): Record<string, unknown> {

@@ -23,6 +23,11 @@ npm start
 
 Use `DRY_RUN=true` to scan and decode without writing events or checkpoints. Use `START_BLOCK` to choose a resume point; it is never allowed before a contract's verified deployment block. USDm has no deployment block in the official manifest, so its explicit scan lower bound is `USDM_START_BLOCK` (default `0`). See [CONFIGURATION.md](CONFIGURATION.md), [DATA_MODEL.md](DATA_MODEL.md), [OPERATIONS.md](OPERATIONS.md), and [DEPLOYMENT.md](DEPLOYMENT.md).
 
+USDm requires the canonical deployed artifact at `abis/USDm.json`; startup
+fails closed if that artifact is missing or its `Transfer` event is malformed.
+Run real integration checks with `POSTGRES_TEST_URL` and `CELO_RPC_URL`:
+`npm run test:integration`.
+
 Health and readiness are exposed at `GET /health` and `GET /readyz` on port `PORT` or `8080`.
 
 ## Scope

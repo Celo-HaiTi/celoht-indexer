@@ -63,6 +63,7 @@ export const DeploymentMetadataSchema = z.object({
   verificationSource: z.string(),
   abiReferences: z.record(z.string()).optional(),
   gitCommit: z.string().nullable(),
+  canonicalRepositoryCommit: z.string().regex(/^[0-9a-f]{40}$/).optional(),
   metadataSource: z.string(),
 });
 

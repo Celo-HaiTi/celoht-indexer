@@ -1,6 +1,6 @@
 import { getServiceRoleClient } from "@/db/supabaseClient";
 import type { IndexTargetName } from "@/config/network";
-import { ensureCanonicalContract, rollbackCanonical, updateCanonicalProgress } from "@/db/canonical";
+import { ensureCanonicalContract, rollbackCanonical } from "@/db/canonical";
 
 export interface CheckpointRow {
   chainId: number;
@@ -21,6 +21,7 @@ export async function ensureCheckpoint(params: {
   displayName: string;
   contractAddress: string;
   deploymentBlock: number;
+  deploymentTxHash?: string;
   startBlock?: number;
   network?: string;
 }): Promise<void> {
@@ -35,6 +36,7 @@ export async function ensureCheckpoint(params: {
     contractName: params.displayName,
     contractAddress: params.contractAddress,
     deploymentBlock: params.deploymentBlock,
+    deploymentTxHash: params.deploymentTxHash,
   });
   const supabase = getServiceRoleClient();
   const { data, error } = await supabase
@@ -80,21 +82,21 @@ export async function updateCheckpointProgress(params: {
   contractAddress: string;
   lastProcessedBlock: bigint;
   latestConfirmedBlock: bigint;
+  blockHash: string;
+  parentHash: string | null;
+  blockTimestamp: bigint;
 }): Promise<void> {
   const supabase = getServiceRoleClient();
-  const { error } = await supabase
-    .from("indexer_state")
-    .update({
-      last_processed_block: params.lastProcessedBlock.toString(),
-      latest_confirmed_block: params.latestConfirmedBlock.toString(),
-      sync_status: "syncing",
-      last_successful_sync_at: new Date().toISOString(),
-      last_error: null,
-    })
-    .eq("chain_id", params.chainId)
-    .eq("contract_address", params.contractAddress);
+  const { error } = await supabase.rpc("commit_indexer_checkpoint", {
+    p_chain_id: params.chainId,
+    p_contract_address: params.contractAddress,
+    p_block_number: params.lastProcessedBlock.toString(),
+    p_block_hash: params.blockHash,
+    p_parent_hash: params.parentHash,
+    p_block_time: new Date(Number(params.blockTimestamp) * 1000).toISOString(),
+    p_latest_confirmed_block: params.latestConfirmedBlock.toString(),
+  });
   if (error) throw error;
-  await updateCanonicalProgress(params);
 }
 
 export async function recordCheckpointError(params: {
@@ -124,23 +126,12 @@ export async function rollbackCheckpoint(params: {
 }): Promise<void> {
   const supabase = getServiceRoleClient();
 
-  const { error: deleteError } = await supabase
+  const { error: compatibilityError } = await supabase
     .from("blockchain_transactions")
-    .delete()
-    .eq("chain_id", params.chainId)
-    .eq("contract_address", params.contractAddress)
-    .gt("block_number", params.safeBlock.toString());
-  if (deleteError) throw deleteError;
-  const { error: tokenError } = await supabase
-    .from("token_transfers")
-    .delete()
+    .update({ confirmed: false })
     .eq("chain_id", params.chainId)
     .gt("block_number", params.safeBlock.toString());
-  if (tokenError) throw tokenError;
-  for (const table of ["agent_events", "service_payment_events", "education_events", "reforestation_events", "governance_events"]) {
-    const { error } = await supabase.from(table).delete().eq("chain_id", params.chainId).gt("block_number", params.safeBlock.toString());
-    if (error) throw error;
-  }
+  if (compatibilityError) throw compatibilityError;
   const { error: blocksError } = await supabase
     .from("indexed_blocks")
     .delete()

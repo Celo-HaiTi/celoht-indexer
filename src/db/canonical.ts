@@ -4,7 +4,7 @@ import { getServiceRoleClient } from "@/db/supabaseClient";
 
 const METADATA_REF = "Celo-HaiTi/celoht-smart-contracts/deployments/celoSepolia.json";
 
-export async function persistCanonicalEvent(event: DecodedEvent, contract: IndexTargetName): Promise<void> {
+export async function persistCanonicalEvent(event: DecodedEvent, contract: IndexTargetName): Promise<string> {
   const supabase = getServiceRoleClient();
   const { data: contractRow, error: contractError } = await supabase
     .from("contracts")
@@ -19,7 +19,6 @@ export async function persistCanonicalEvent(event: DecodedEvent, contract: Index
       chain_id: event.chainId,
       block_number: event.blockNumber.toString(),
       block_hash: event.blockHash,
-      parent_hash: event.parentHash,
       block_time: event.blockTimestamp === null ? null : new Date(Number(event.blockTimestamp) * 1000).toISOString(),
       confirmed_at: new Date().toISOString(),
     },
@@ -35,7 +34,6 @@ export async function persistCanonicalEvent(event: DecodedEvent, contract: Index
         transaction_hash: event.transactionHash,
         block_number: event.blockNumber.toString(),
         block_hash: event.blockHash,
-        transaction_index: event.transactionIndex,
         confirmation_status: "confirmed",
       },
       { onConflict: "chain_id,transaction_hash" }
@@ -44,7 +42,7 @@ export async function persistCanonicalEvent(event: DecodedEvent, contract: Index
     .single();
   if (transactionError) throw transactionError;
 
-  const { error: eventError } = await supabase.from("blockchain_events").upsert(
+  const { data: persistedEvent, error: eventError } = await supabase.from("blockchain_events").upsert(
     {
       chain_id: event.chainId,
       contract_id: contractRow.id,
@@ -52,7 +50,6 @@ export async function persistCanonicalEvent(event: DecodedEvent, contract: Index
       block_number: event.blockNumber.toString(),
       block_hash: event.blockHash,
       transaction_hash: event.transactionHash,
-      transaction_index: event.transactionIndex,
       log_index: event.logIndex,
       event_name: event.eventName,
       event_type: contract,
@@ -64,8 +61,9 @@ export async function persistCanonicalEvent(event: DecodedEvent, contract: Index
       block_timestamp: event.blockTimestamp === null ? null : new Date(Number(event.blockTimestamp) * 1000).toISOString(),
     },
     { onConflict: "chain_id,transaction_hash,log_index" }
-  );
+  ).select("id").single();
   if (eventError) throw eventError;
+  return persistedEvent.id as string;
 }
 
 export async function persistIndexedBlock(params: {
@@ -96,6 +94,7 @@ export async function ensureCanonicalContract(params: {
   contractName: string;
   contractAddress: string;
   deploymentBlock: number;
+  deploymentTxHash?: string;
 }): Promise<void> {
   const supabase = getServiceRoleClient();
   const { error: networkError } = await supabase.from("blockchain_networks").upsert(
@@ -110,6 +109,7 @@ export async function ensureCanonicalContract(params: {
       contract_name: params.contractName,
       contract_address: params.contractAddress,
       deployment_block: params.deploymentBlock,
+      deployment_tx_hash: params.deploymentTxHash ?? null,
       metadata_ref: METADATA_REF,
       is_active: true,
     },
@@ -175,11 +175,17 @@ export async function rollbackCanonical(params: {
 
   const { error: eventError } = await supabase
     .from("blockchain_events")
-    .delete()
+    .update({ confirmation_status: "orphaned" })
     .eq("chain_id", params.chainId)
-    .eq("contract_id", contract.id)
     .gt("block_number", params.safeBlock.toString());
   if (eventError) throw eventError;
+
+  const { error: transactionError } = await supabase
+    .from("indexed_transactions")
+    .update({ confirmation_status: "orphaned" })
+    .eq("chain_id", params.chainId)
+    .gt("block_number", params.safeBlock.toString());
+  if (transactionError) throw transactionError;
 
   const { error: stateError } = await supabase
     .from("indexer_sync_state")

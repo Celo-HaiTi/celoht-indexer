@@ -10,7 +10,11 @@
     "build": "tsc -p tsconfig.json && tsc-alias -p tsconfig.json --resolve-full-paths --resolve-full-extension .js",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --max-warnings=0",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:integration:postgres": "node scripts/integration/postgres.mjs",
+    "test:integration:rpc": "node scripts/integration/rpc.mjs",
+    "test:integration:failure": "node scripts/integration/failure.mjs",
+    "test:integration": "npm run test:integration:postgres && npm run test:integration:rpc && npm run test:integration:failure"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",
@@ -19,9 +23,11 @@
   },
   "devDependencies": {
     "@types/node": "^20.14.10",
+    "@types/pg": "^8.23.1",
     "@typescript-eslint/eslint-plugin": "^7.16.0",
     "@typescript-eslint/parser": "^7.16.0",
     "eslint": "^8.57.0",
+    "pg": "^8.23.0",
     "tsc-alias": "^1.9.4",
     "tsx": "^4.19.1",
     "typescript": "^5.5.3",
