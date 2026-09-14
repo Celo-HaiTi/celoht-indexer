@@ -119,9 +119,7 @@ Documentation gaps remaining:
 
 ### P1 — Important production issue
 
-1. The `npm audit` step in CI does not stop the workflow on newly introduced vulnerabilities because `continue-on-error: true` is set.
-   - Why it matters: audit findings could be silently ignored in CI.
-   - Required action: review whether the audit step should be blocking for the target governance process.
+1. No internal P1 engineering issue remains in the checked-in implementation. CI runs the high-severity audit as a blocking step.
 
 ### P2 — Improvement
 
@@ -133,8 +131,18 @@ Documentation gaps remaining:
    - Why it matters: production deployment is currently documented at a high level, but not fully tied to the actual hosting process.
    - Required action: add a deployment and verification checklist for the concrete runtime environment.
 
+## External Audit Status
+
+### PENDING EXTERNAL AUDIT
+
+- Independent smart-contract security audit of the upstream CeloHT contracts.
+- Independent penetration/security assessment of the deployed operational surface.
+
+These are separate from the outstanding live integration verification.
+
 ## Current Status
 
-READY FOR TESTING
+NOT READY
 
-This repository is ready for local testing and integration setup against real infrastructure, but it is not yet verified for production deployment because the target environment has not been exercised in this session.
+The implementation and local checks pass, but the target database, RPC,
+restart, and reorg checks have not been executed in this workspace.

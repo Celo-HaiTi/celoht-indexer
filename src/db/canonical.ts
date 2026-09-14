@@ -19,6 +19,7 @@ export async function persistCanonicalEvent(event: DecodedEvent, contract: Index
       chain_id: event.chainId,
       block_number: event.blockNumber.toString(),
       block_hash: event.blockHash,
+      parent_hash: event.parentHash,
       block_time: event.blockTimestamp === null ? null : new Date(Number(event.blockTimestamp) * 1000).toISOString(),
       confirmed_at: new Date().toISOString(),
     },
@@ -34,6 +35,7 @@ export async function persistCanonicalEvent(event: DecodedEvent, contract: Index
         transaction_hash: event.transactionHash,
         block_number: event.blockNumber.toString(),
         block_hash: event.blockHash,
+        transaction_index: event.transactionIndex,
         confirmation_status: "confirmed",
       },
       { onConflict: "chain_id,transaction_hash" }
@@ -117,22 +119,16 @@ export async function ensureCanonicalContract(params: {
   ).select("id").single();
   if (contractError) throw contractError;
 
-  const { data: existingState, error: readStateError } = await supabase
-    .from("indexer_sync_state")
-    .select("chain_id")
-    .eq("chain_id", params.chainId)
-    .eq("contract_id", contract.id)
-    .maybeSingle();
-  if (readStateError) throw readStateError;
-  if (!existingState) {
-    const { error: stateError } = await supabase.from("indexer_sync_state").insert({
+  const { error: stateError } = await supabase.from("indexer_sync_state").upsert(
+    {
       chain_id: params.chainId,
       contract_id: contract.id,
       next_block: params.deploymentBlock,
       status: "idle",
-    });
-    if (stateError) throw stateError;
-  }
+    },
+    { onConflict: "chain_id,contract_id", ignoreDuplicates: true }
+  );
+  if (stateError) throw stateError;
 }
 
 export async function updateCanonicalProgress(params: {

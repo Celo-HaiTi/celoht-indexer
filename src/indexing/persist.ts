@@ -16,6 +16,7 @@ export async function persistEvent(event: DecodedEvent, contract: IndexTargetNam
         log_index: event.logIndex,
         block_number: event.blockNumber.toString(),
         block_hash: event.blockHash,
+        transaction_index: event.transactionIndex,
         event_name: event.eventName,
         event_data: {
           ...serializeArgs(event.args),

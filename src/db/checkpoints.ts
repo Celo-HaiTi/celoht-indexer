@@ -39,15 +39,6 @@ export async function ensureCheckpoint(params: {
     deploymentTxHash: params.deploymentTxHash,
   });
   const supabase = getServiceRoleClient();
-  const { data, error } = await supabase
-    .from("indexer_state")
-    .select("id")
-    .eq("chain_id", params.chainId)
-    .eq("contract_address", params.contractAddress)
-    .maybeSingle();
-  if (error) throw error;
-  if (data) return;
-
   const { error: insertError } = await supabase.from("indexer_state").insert({
     chain_id: params.chainId,
     contract_name: params.displayName,
@@ -55,7 +46,7 @@ export async function ensureCheckpoint(params: {
     last_processed_block: Math.max(0, Math.max(params.deploymentBlock, params.startBlock ?? params.deploymentBlock) - 1),
     sync_status: "idle",
   });
-  if (insertError) throw insertError;
+  if (insertError && insertError.code !== "23505") throw insertError;
 }
 
 export async function getCheckpoint(chainId: number, contractAddress: string): Promise<CheckpointRow> {

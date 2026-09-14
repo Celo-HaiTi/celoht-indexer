@@ -74,7 +74,12 @@ async function main(): Promise<void> {
     if (error) throw error;
   }
 
-  const healthServer = startHealthServer({ client, meta, port: Number(process.env.PORT ?? 8080) });
+  const healthServer = startHealthServer({
+    client,
+    meta,
+    port: Number(process.env.PORT ?? 8080),
+    expectedCheckpointCount: targets.length,
+  });
 
   const sync = startLiveSyncLoop({
     client,

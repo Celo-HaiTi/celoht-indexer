@@ -11,7 +11,12 @@ import { logger } from "@/util/logger";
  * "healthy" if a critical dependency is unavailable — an RPC or DB failure
  * here returns HTTP 503.
  */
-export function startHealthServer(params: { client: PublicClient; meta: DeploymentMetadata; port: number }) {
+export function startHealthServer(params: {
+  client: PublicClient;
+  meta: DeploymentMetadata;
+  port: number;
+  expectedCheckpointCount: number;
+}) {
   const server = createServer(async (req, res) => {
     if (req.url !== "/health" && req.url !== "/readyz") {
       res.writeHead(404).end();
@@ -46,24 +51,33 @@ export function startHealthServer(params: { client: PublicClient; meta: Deployme
         return;
       }
 
+      const targetBlock = headBlock - BigInt(env.CONFIRMATIONS) > 0n
+        ? headBlock - BigInt(env.CONFIRMATIONS)
+        : 0n;
       const anyErrored = (checkpoints ?? []).some((c) => c.sync_status === "error");
       const lag = (checkpoints ?? []).map((c) => ({
         contract: c.contract_name,
         lastProcessedBlock: c.last_processed_block,
-        targetBlock: (headBlock - BigInt(env.CONFIRMATIONS)).toString(),
-        blocksBehind: Math.max(0, Number(headBlock - BigInt(env.CONFIRMATIONS)) - Number(c.last_processed_block)),
+        targetBlock: targetBlock.toString(),
+        blocksBehind: Math.max(0, Number(targetBlock) - Number(c.last_processed_block)),
         latestConfirmedBlock: c.latest_confirmed_block,
         syncStatus: c.sync_status,
         lastError: c.last_error,
         lastSuccessfulSync: c.last_successful_sync_at,
       }));
+      const allCheckpointsCaughtUp =
+        checkpoints?.length === params.expectedCheckpointCount &&
+        checkpoints.every((checkpoint) => BigInt(checkpoint.last_processed_block) >= targetBlock);
+      const ready = !anyErrored && allCheckpointsCaughtUp;
+      const statusCode = anyErrored || (req.url === "/readyz" && !ready) ? 503 : 200;
 
-      res.writeHead(anyErrored ? 503 : 200, { "content-type": "application/json" }).end(
+      res.writeHead(statusCode, { "content-type": "application/json" }).end(
         JSON.stringify({
-          status: anyErrored ? "degraded" : "healthy",
+          status: anyErrored || !ready ? "degraded" : "healthy",
+          ready,
           chainId,
           headBlock: headBlock.toString(),
-          targetBlock: (headBlock - BigInt(env.CONFIRMATIONS)).toString(),
+          targetBlock: targetBlock.toString(),
           confirmations: env.CONFIRMATIONS,
           rpc: { status: "healthy", latencyMs: rpcLatencyMs },
           database: { status: "healthy", latencyMs: databaseLatencyMs },

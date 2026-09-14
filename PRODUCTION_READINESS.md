@@ -12,7 +12,25 @@ Indexer
 
 ## Status
 
-READY FOR TESTING
+NOT READY
+
+Internal implementation is complete for the code and local verification
+available in this workspace. Live Supabase/PostgreSQL and Celo Sepolia
+integration verification remains unexecuted because no target credentials were
+provided.
+
+## Operational Readiness Matrix
+
+| Component | Current State | Required Work | Can Implement Internally? | External Audit Required? | Final Status |
+| --- | --- | --- | --- | --- | --- |
+| Runtime configuration | Fail-closed Zod validation | None locally | Yes | No | COMPLETE |
+| RPC and deployment metadata | Celo Sepolia chain and bytecode checks enabled | Run against target RPC | Yes | No | NEEDS DEPLOYMENT |
+| ABI loading and decoding | Official artifacts validated and malformed logs rejected | None locally | Yes | No | COMPLETE |
+| Backfill and live polling | Confirmed-range polling with bounded retries | Exercise restart behavior on target infrastructure | Yes | No | NEEDS TESTING |
+| Persistence and checkpoints | Canonical and compatibility ledgers with atomic progress | Apply and run against target Supabase schema | Yes | No | NEEDS INTEGRATION |
+| Reorg handling | Hash verification and rollback path implemented | Exercise against a fork or controlled reorg | Yes | No | NEEDS TESTING |
+| Health and readiness | `/health` dependency status and `/readyz` catch-up gate | Verify through deployed process | Yes | No | NEEDS DEPLOYMENT |
+| Security controls | Secret-free repository, fail-closed network, zero high audit vulnerabilities | Independent review after deployment | Yes | Yes | PENDING EXTERNAL AUDIT |
 
 ## What Works
 
@@ -25,12 +43,10 @@ READY FOR TESTING
 - Reorg detection and rollback logic.
 - Canonical and compatibility persistence paths.
 - Health and readiness HTTP endpoint.
+- Parent-block and transaction-index provenance in both event ledgers.
+- Concurrent-safe initialization for canonical and compatibility checkpoints.
+- Readiness that remains false until every configured target reaches the confirmed chain.
 - Unit tests and TypeScript build/lint coverage.
-
-## What Was Changed
-
-- Added `AUDIT.md` documenting the repository role, current architecture, existing functionality, incomplete areas, dependencies, security risks, deployment status, and blockers.
-- Added `PRODUCTION_READINESS.md` summarizing the evidence-backed readiness status and remaining blockers.
 
 ## Tests
 
@@ -41,11 +57,11 @@ Executed successfully:
 - `npm run build` — succeeded.
 - `npm run lint` — succeeded (with a non-blocking TypeScript compatibility warning from `@typescript-eslint`).
 - `npm audit --audit-level=high` — reported 0 vulnerabilities.
+- `npm run test:integration:rpc` — passed against Celo Sepolia, chain `11142220`.
 
 Not executed in this workspace because required environment variables were unavailable:
 
 - `npm run test:integration:postgres`
-- `npm run test:integration:rpc`
 - `npm run test:integration:failure`
 
 ## Security
@@ -85,14 +101,28 @@ Observed deployment characteristics:
 
 ## P1
 
-- CI audit step uses `continue-on-error: true`, so high-severity vulnerabilities may not fail the workflow.
+- No unresolved internal P1 engineering issue was identified after the fixes in this session.
 
 ## P2
 
 - `@typescript-eslint` emits a TypeScript compatibility warning; toolchain alignment is a maintenance improvement.
 - A deployment runbook for the concrete hosting environment is not present in-repository.
 
-## Remaining Blockers
+## Remaining Internal Work
+
+- Execute the real PostgreSQL, RPC, failure, restart, and reorg integration checks against a disposable or target environment.
+- Verify the deployed health/readiness behavior and checkpoint recovery.
+
+## External Audit Required
+
+### PENDING EXTERNAL AUDIT
+
+- Independent smart-contract security audit of the upstream contracts.
+- Independent penetration/security assessment of the deployed operational surface.
+
+These reviews do not replace the live integration and deployment checks above.
+
+## Blockers
 
 ### What is missing
 
@@ -104,8 +134,17 @@ Observed deployment characteristics:
 
 ### What is required
 
-- Run the PostgreSQL, RPC, and failure integration scripts against the actual Supabase project and Celo Sepolia RPC.
-- Verify restart and reorg handling in the target environment.
+- Real `POSTGRES_TEST_URL` / `DATABASE_URL` access is required to execute the remaining database integration checks; the public Celo Sepolia RPC check passed.
+
+## Final Status
+
+NOT READY
+
+## Next Action
+
+Run `npm run test:integration:postgres` and
+`npm run test:integration:failure` with a disposable PostgreSQL database, then
+perform a restart/recovery rehearsal against the same environment.
 
 ## Evidence
 
