@@ -11,6 +11,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --max-warnings=0",
     "test": "vitest run",
+    "guard:mock-data": "node scripts/check-no-prod-mocks.mjs",
+    "ci:guard:mock-data": "npm run guard:mock-data",
     "test:integration:postgres": "node scripts/integration/postgres.mjs",
     "test:integration:rpc": "node scripts/integration/rpc.mjs",
     "test:integration:failure": "node scripts/integration/failure.mjs",
@@ -30,7 +32,7 @@
     "pg": "^8.23.0",
     "tsc-alias": "^1.9.4",
     "tsx": "^4.19.1",
-    "typescript": "^5.5.3",
+    "typescript": "5.5.4",
     "vitest": "^4.1.11"
   },
   "engines": {
