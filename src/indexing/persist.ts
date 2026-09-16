@@ -35,7 +35,7 @@ export async function persistEvent(event: DecodedEvent, contract: IndexTargetNam
   if (contract === "agentRegistry") await persistAgentRegistration(event);
   if (contract === "governance") await persistGovernance(row.id, event);
   if (contract === "servicePayments" || contract === "reforestation" || contract === "education" || contract === "usdm") {
-    logger.info("legacy_projection_skipped", {
+    logger.info("unsupported_projection_skipped", {
       contract,
       event: event.eventName,
       reason: "canonical event ledger is authoritative; no compatible projection is defined for this event",

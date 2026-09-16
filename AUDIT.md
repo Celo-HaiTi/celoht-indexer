@@ -146,3 +146,49 @@ NOT READY
 
 The implementation and local checks pass, but the target database, RPC,
 restart, and reorg checks have not been executed in this workspace.
+
+## Organization Terminology Audit
+
+Audit date: 2026-09-16
+
+The accessible Celo-HaiTi organization scope was reviewed across these 15
+repositories: `CeloHT`, `.github`, `celoht-docs`, `celoht-research`,
+`celoht-dapp`, `celoht-smart-contracts`, `celoht-backend`, `celoht-indexer`,
+`celoht-governance`, `celoht-supabase`, `celoht-admin`, `celoht-siteweb`,
+`celoht-brand`, `celoht-demo`, and `celoht-investor-book`.
+
+The current checkout contained one actionable tracked occurrence: an
+unconsumed structured log label for a projection that is intentionally not
+written. It was renamed to `unsupported_projection_skipped`; runtime behavior
+and the canonical event ledger are unchanged. No path names required renaming,
+no database identifiers were changed, and no migration was created.
+
+The remote repositories were audited but are not writable from this checkout.
+Their tracked findings are limited to documentation wording, audit-report
+self references, compatibility terminology, and one deployed Supabase trigger
+function identifier. The latter must be handled by an additive database
+migration and coordinated application rollout, not by editing an old migration
+in place. Generated dependency and report artifacts were excluded from the
+tracked-source assessment.
+
+### Change Table
+
+| Repository | File | Line/Section | Previous Usage | New Usage | Reason |
+| ---------- | ---- | ------------ | -------------- | --------- | ------ |
+| celoht-indexer | `src/indexing/persist.ts` | projection skip log | prohibited projection label | `unsupported_projection_skipped` | Neutral event name; no consumers found and behavior is unchanged. |
+
+### Final Verification
+
+| Check | Result |
+| ----- | ------ |
+| Prohibited historical term | PASS in this checkout; zero tracked and working-tree matches after the edit |
+| Obsolete currency terminology | PASS in this checkout |
+| Obsolete project identity terminology | PASS in this checkout |
+| Prohibited path names | PASS in this checkout and audited clones |
+| Broken links | NOT RUN organization-wide; no paths were renamed |
+| Tests/build | PASS; 22 Vitest tests and TypeScript checking completed successfully |
+
+The focused test suite completed with 22 passing tests, and TypeScript checking
+completed without diagnostics. Organization-wide remote changes remain pending
+because this workspace does not contain writable checkouts or an approved push
+operation for those repositories.
