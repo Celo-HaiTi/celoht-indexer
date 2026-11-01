@@ -34,7 +34,13 @@ export async function runSyncPass(params: LiveSyncParams): Promise<void> {
 
   for (const target of params.targets) {
     const checkpoint = params.dryRun
-      ? { lastProcessedBlock: BigInt(target.deploymentBlock - 1), latestConfirmedBlock: null, syncStatus: "idle" as const }
+      ? {
+          lastProcessedBlock: BigInt(target.deploymentBlock - 1),
+          lastProcessedBlockHash: null,
+          lastProcessedParentHash: null,
+          latestConfirmedBlock: null,
+          syncStatus: "idle" as const,
+        }
       : await getCheckpoint(params.chainId, target.contractAddress);
 
     if (!params.dryRun && checkpoint.lastProcessedBlock > 0n) {
@@ -43,6 +49,10 @@ export async function runSyncPass(params: LiveSyncParams): Promise<void> {
         chainId: params.chainId,
         contractAddress: target.contractAddress,
         lastProcessedBlock: checkpoint.lastProcessedBlock,
+        lastProcessedBlockHash: checkpoint.lastProcessedBlockHash,
+        lastProcessedParentHash: checkpoint.lastProcessedParentHash,
+        latestConfirmedBlock: checkpoint.latestConfirmedBlock,
+        deploymentBlock: target.deploymentBlock,
       });
       if (reorgDetected) {
         logger.warn("checkpoint_rolled_back", { contract: target.contract, safeBlock: safeBlock.toString() });

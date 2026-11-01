@@ -99,6 +99,7 @@ export async function ensureCanonicalContract(params: {
   contractName: string;
   contractAddress: string;
   deploymentBlock: number;
+  startBlock?: number;
   deploymentTxHash?: string;
 }): Promise<void> {
   const supabase = getServiceRoleClient();
@@ -122,11 +123,13 @@ export async function ensureCanonicalContract(params: {
   ).select("id").single();
   if (contractError) throwSupabaseError("contracts.upsert", contractError);
 
+  const nextBlock = Math.max(params.deploymentBlock, params.startBlock ?? params.deploymentBlock);
   const { error: stateError } = await supabase.from("indexer_sync_state").upsert(
     {
       chain_id: params.chainId,
       contract_id: contract.id,
-      next_block: params.deploymentBlock,
+      next_block: nextBlock,
+      last_processed_block: nextBlock - 1,
       status: "idle",
     },
     { onConflict: "chain_id,contract_id", ignoreDuplicates: true }

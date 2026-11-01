@@ -1,6 +1,6 @@
 import type { PublicClient } from "viem";
 import { getServiceRoleClient } from "@/db/supabaseClient";
-import { rollbackCheckpoint } from "@/db/checkpoints";
+import { rewindCheckpointToDeployment, rollbackCheckpoint, updateCheckpointProgress } from "@/db/checkpoints";
 import { logger } from "@/util/logger";
 import { serializeError } from "@/util/errorSerializer";
 
@@ -45,6 +45,10 @@ export async function detectAndHandleReorg(params: {
   chainId: number;
   contractAddress: `0x${string}`;
   lastProcessedBlock: bigint;
+  lastProcessedBlockHash?: string | null;
+  lastProcessedParentHash?: string | null;
+  latestConfirmedBlock?: bigint | null;
+  deploymentBlock?: number;
   maxLookback?: number;
 }): Promise<{ reorgDetected: boolean; safeBlock: bigint }> {
   const maxLookback = params.maxLookback ?? 50;
@@ -63,7 +67,43 @@ export async function detectAndHandleReorg(params: {
   if (error) throw error;
 
   const anchors = (data ?? []) as CanonicalAnchorRow[];
+  const checkpointIsAnchored = anchors.some((anchor) => {
+    try {
+      return BigInt(anchor.block_number) === params.lastProcessedBlock;
+    } catch {
+      return false;
+    }
+  });
   if (anchors.length === 0) {
+    if (params.deploymentBlock !== undefined) {
+      const deploymentBoundary = BigInt(params.deploymentBlock - 1);
+      if (params.lastProcessedBlock <= deploymentBoundary) {
+        return { reorgDetected: false, safeBlock: params.lastProcessedBlock };
+      }
+
+      const verifiedCheckpoint = await verifyCheckpointBlock(params);
+
+      logger.warn("checkpoint_deployment_recovery_started", {
+        contract: params.contractAddress,
+        chainId: params.chainId,
+        checkpointBlock: params.lastProcessedBlock.toString(),
+        checkpointHashVerified: verifiedCheckpoint !== null,
+        deploymentBlock: params.deploymentBlock,
+        safeBlock: deploymentBoundary.toString(),
+      });
+      await rewindCheckpointToDeployment({
+        chainId: params.chainId,
+        contractAddress: params.contractAddress,
+        deploymentBlock: params.deploymentBlock,
+      });
+      logger.warn("checkpoint_deployment_recovery_complete", {
+        contract: params.contractAddress,
+        chainId: params.chainId,
+        safeBlock: deploymentBoundary.toString(),
+      });
+      return { reorgDetected: true, safeBlock: deploymentBoundary };
+    }
+
     const message = `No canonical or confirmed indexed_blocks anchor exists at or below checkpoint ${params.lastProcessedBlock} ` +
       `for chain ${params.chainId} and contract ${params.contractAddress}.`;
     logger.error("canonical_anchor_missing", {
@@ -77,6 +117,8 @@ export async function detectAndHandleReorg(params: {
     });
     throw new MissingCanonicalAnchorError(message);
   }
+
+  const verifiedCheckpoint = checkpointIsAnchored ? null : await verifyCheckpointBlock(params);
 
   let previousBlockNumber: bigint | null = null;
   const validatedAnchors = anchors.map((anchor, index) => {
@@ -152,6 +194,26 @@ export async function detectAndHandleReorg(params: {
 
     const rpcHash = rpcHashValue.toLowerCase();
     if (rpcHash === storedHash) {
+      if (verifiedCheckpoint && blockNumber < params.lastProcessedBlock) {
+        await updateCheckpointProgress({
+          chainId: params.chainId,
+          contractAddress: params.contractAddress,
+          lastProcessedBlock: params.lastProcessedBlock,
+          latestConfirmedBlock: params.latestConfirmedBlock ?? params.lastProcessedBlock,
+          blockHash: verifiedCheckpoint.hash,
+          parentHash: verifiedCheckpoint.parentHash,
+          blockTimestamp: verifiedCheckpoint.timestamp,
+        });
+        logger.warn("missing_checkpoint_anchor_restored", {
+          contract: params.contractAddress,
+          chainId: params.chainId,
+          blockNumber: params.lastProcessedBlock.toString(),
+          blockHash: verifiedCheckpoint.hash,
+          precedingAnchor: blockNumber.toString(),
+        });
+        return { reorgDetected: false, safeBlock: params.lastProcessedBlock };
+      }
+
       const checkpointBehindAnchor = blockNumber < params.lastProcessedBlock;
       const recoveryNeeded = anchorsExamined > 1 || checkpointBehindAnchor;
       if (!recoveryNeeded) return { reorgDetected: false, safeBlock: blockNumber };
@@ -217,6 +279,85 @@ export async function detectAndHandleReorg(params: {
       `for chain ${params.chainId}, contract ${params.contractAddress}, checkpoint ${params.lastProcessedBlock}; ` +
       "the stored history is insufficient to identify a safe rollback point."
   );
+}
+
+async function verifyCheckpointBlock(params: {
+  client: PublicClient;
+  chainId: number;
+  contractAddress: `0x${string}`;
+  lastProcessedBlock: bigint;
+  lastProcessedBlockHash?: string | null;
+  lastProcessedParentHash?: string | null;
+}): Promise<{ hash: string; parentHash: string | null; timestamp: bigint } | null> {
+  let block;
+  try {
+    block = await params.client.getBlock({ blockNumber: params.lastProcessedBlock });
+  } catch (error) {
+    throw new CanonicalAnchorRpcError(
+      `RPC failed while verifying checkpoint ${params.lastProcessedBlock} for ${params.contractAddress}: ${String(error)}`
+    );
+  }
+
+  if (
+    !block || block.number !== params.lastProcessedBlock || typeof block.hash !== "string" || !isHash(block.hash) ||
+    typeof block.parentHash !== "string" || !isHash(block.parentHash)
+  ) {
+    throw new CanonicalAnchorIntegrityError(
+      `RPC returned a null, malformed, or unexpected block while verifying checkpoint ${params.lastProcessedBlock}.`
+    );
+  }
+
+  const storedHash = params.lastProcessedBlockHash;
+  if (typeof storedHash !== "string" || !isHash(storedHash) || block.hash.toLowerCase() !== storedHash.toLowerCase()) {
+    logger.warn("checkpoint_hash_unverified", {
+      contract: params.contractAddress,
+      chainId: params.chainId,
+      blockNumber: params.lastProcessedBlock.toString(),
+      storedHash: storedHash ?? null,
+      rpcHash: block.hash,
+    });
+    return null;
+  }
+
+  if (
+    params.lastProcessedParentHash &&
+    (!isHash(params.lastProcessedParentHash) || block.parentHash.toLowerCase() !== params.lastProcessedParentHash.toLowerCase())
+  ) {
+    logger.warn("checkpoint_parent_hash_unverified", {
+      contract: params.contractAddress,
+      chainId: params.chainId,
+      blockNumber: params.lastProcessedBlock.toString(),
+      storedParentHash: params.lastProcessedParentHash,
+      rpcParentHash: block.parentHash,
+    });
+    return null;
+  }
+
+  if (params.lastProcessedBlock > 0n) {
+    let parent;
+    try {
+      parent = await params.client.getBlock({ blockNumber: params.lastProcessedBlock - 1n });
+    } catch (error) {
+      throw new CanonicalAnchorRpcError(
+        `RPC failed while verifying the parent of checkpoint ${params.lastProcessedBlock}: ${String(error)}`
+      );
+    }
+    if (
+      !parent || parent.number !== params.lastProcessedBlock - 1n || typeof parent.hash !== "string" ||
+      parent.hash.toLowerCase() !== block.parentHash.toLowerCase()
+    ) {
+      logger.warn("checkpoint_parent_continuity_unverified", {
+        contract: params.contractAddress,
+        chainId: params.chainId,
+        blockNumber: params.lastProcessedBlock.toString(),
+        rpcParentHash: block.parentHash,
+        fetchedParentHash: parent?.hash ?? null,
+      });
+      return null;
+    }
+  }
+
+  return { hash: block.hash.toLowerCase(), parentHash: block.parentHash.toLowerCase(), timestamp: block.timestamp };
 }
 
 function parseAnchorBlockNumber(

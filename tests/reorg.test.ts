@@ -8,10 +8,14 @@ interface Anchor {
   confirmation_status: "canonical" | "confirmed" | "orphaned";
 }
 
-const { database } = vi.hoisted(() => ({
+const { database, recoveryCalls } = vi.hoisted(() => ({
   database: {
     anchors: [] as Anchor[],
     operations: [] as Array<{ table: string; action: string; args: unknown[] }>,
+  },
+  recoveryCalls: {
+    restored: [] as unknown[],
+    rewound: [] as unknown[],
   },
 }));
 
@@ -109,6 +113,15 @@ vi.mock("@/db/supabaseClient", () => ({
   }),
 }));
 
+vi.mock("@/db/checkpoints", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/db/checkpoints")>();
+  return {
+    ...actual,
+    updateCheckpointProgress: vi.fn(async (params: unknown) => recoveryCalls.restored.push(params)),
+    rewindCheckpointToDeployment: vi.fn(async (params: unknown) => recoveryCalls.rewound.push(params)),
+  };
+});
+
 import {
   CanonicalAnchorIntegrityError,
   DeepReorganizationError,
@@ -143,6 +156,8 @@ describe("detectAndHandleReorg", () => {
   beforeEach(() => {
     database.anchors.splice(0);
     database.operations.splice(0);
+    recoveryCalls.restored.splice(0);
+    recoveryCalls.rewound.splice(0);
   });
 
   it("accepts a matching canonical block at the checkpoint", async () => {
@@ -162,11 +177,11 @@ describe("detectAndHandleReorg", () => {
 
   it("ignores a newer orphaned row and rolls the checkpoint back to the valid anchor", async () => {
     database.anchors.push(anchor(101, hash(999), "orphaned"), anchor(100, hash(100), "canonical"));
-    const client = rpc([rpcBlock(100)]);
+    const client = rpc([rpcBlock(101), rpcBlock(100)]);
 
     await expect(detectAndHandleReorg({ client, chainId, contractAddress, lastProcessedBlock: 101n }))
       .resolves.toEqual({ reorgDetected: true, safeBlock: 100n });
-    expect(client.getBlock).toHaveBeenCalledTimes(1);
+    expect(client.getBlock).toHaveBeenCalledTimes(2);
     expect(database.operations).toContainEqual({
       table: "indexed_blocks",
       action: "gt",
@@ -217,6 +232,85 @@ describe("detectAndHandleReorg", () => {
       contractAddress,
       lastProcessedBlock: 100n,
     })).rejects.toBeInstanceOf(MissingCanonicalAnchorError);
+  });
+
+  it("restores a missing checkpoint row after matching its RPC hash and preceding canonical anchor", async () => {
+    database.anchors.push(anchor(99, hash(99)));
+    const client = rpc([rpcBlock(100), rpcBlock(99)]);
+
+    await expect(detectAndHandleReorg({
+      client,
+      chainId,
+      contractAddress,
+      lastProcessedBlock: 100n,
+      lastProcessedBlockHash: hash(100),
+      lastProcessedParentHash: hash(99),
+      deploymentBlock: 10,
+    })).resolves.toEqual({ reorgDetected: false, safeBlock: 100n });
+
+    expect(recoveryCalls.restored).toEqual([expect.objectContaining({
+      lastProcessedBlock: 100n,
+      blockHash: hash(100),
+      parentHash: hash(99),
+    })]);
+    expect(recoveryCalls.rewound).toHaveLength(0);
+  });
+
+  it("does not restore a checkpoint whose stored hash differs from RPC and recovers from deployment", async () => {
+    const client = rpc([rpcBlock(100, hash(900))]);
+
+    await expect(detectAndHandleReorg({
+      client,
+      chainId,
+      contractAddress,
+      lastProcessedBlock: 100n,
+      lastProcessedBlockHash: hash(100),
+      deploymentBlock: 10,
+    })).resolves.toEqual({ reorgDetected: true, safeBlock: 9n });
+
+    expect(recoveryCalls.restored).toHaveLength(0);
+    expect(recoveryCalls.rewound).toEqual([{
+      chainId,
+      contractAddress,
+      deploymentBlock: 10,
+    }]);
+  });
+
+  it("preserves orphaned-only history and uses the deployment boundary when no canonical anchors remain", async () => {
+    database.anchors.push(anchor(100, hash(100), "orphaned"));
+
+    await expect(detectAndHandleReorg({
+      client: rpc([rpcBlock(100)]),
+      chainId,
+      contractAddress,
+      lastProcessedBlock: 100n,
+      deploymentBlock: 10,
+    })).resolves.toEqual({ reorgDetected: true, safeBlock: 9n });
+
+    expect(database.anchors).toEqual([anchor(100, hash(100), "orphaned")]);
+    expect(recoveryCalls.rewound).toHaveLength(1);
+  });
+
+  it("recovers with no historical rows and leaves a deployment-seeded restart idempotent", async () => {
+    await expect(detectAndHandleReorg({
+      client: rpc([rpcBlock(100), rpcBlock(99)]),
+      chainId,
+      contractAddress,
+      lastProcessedBlock: 100n,
+      lastProcessedBlockHash: hash(100),
+      lastProcessedParentHash: hash(99),
+      deploymentBlock: 10,
+    })).resolves.toEqual({ reorgDetected: true, safeBlock: 9n });
+
+    await expect(detectAndHandleReorg({
+      client: rpc(),
+      chainId,
+      contractAddress,
+      lastProcessedBlock: 9n,
+      deploymentBlock: 10,
+    })).resolves.toEqual({ reorgDetected: false, safeBlock: 9n });
+
+    expect(recoveryCalls.rewound).toHaveLength(1);
   });
 
   it("reports incomplete history instead of guessing after mismatches", async () => {

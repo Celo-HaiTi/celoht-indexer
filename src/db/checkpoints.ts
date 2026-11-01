@@ -7,8 +7,17 @@ export interface CheckpointRow {
   chainId: number;
   contractAddress: string;
   lastProcessedBlock: bigint;
+  lastProcessedBlockHash: string | null;
+  lastProcessedParentHash: string | null;
   latestConfirmedBlock: bigint | null;
   syncStatus: "idle" | "syncing" | "error";
+}
+
+export class CheckpointConsistencyError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CheckpointConsistencyError";
+  }
 }
 
 /**
@@ -37,14 +46,16 @@ export async function ensureCheckpoint(params: {
     contractName: params.displayName,
     contractAddress: params.contractAddress,
     deploymentBlock: params.deploymentBlock,
+    startBlock: params.startBlock,
     deploymentTxHash: params.deploymentTxHash,
   });
   const supabase = getServiceRoleClient();
+  const initialBlock = Math.max(params.deploymentBlock, params.startBlock ?? params.deploymentBlock);
   const { error: insertError } = await supabase.from("indexer_state").insert({
     chain_id: params.chainId,
     contract_name: params.displayName,
     contract_address: params.contractAddress,
-    last_processed_block: Math.max(0, Math.max(params.deploymentBlock, params.startBlock ?? params.deploymentBlock) - 1),
+    last_processed_block: initialBlock - 1,
     sync_status: "idle",
   });
   if (insertError && insertError.code !== "23505") throwSupabaseError("indexer_state.insert", insertError);
@@ -52,21 +63,55 @@ export async function ensureCheckpoint(params: {
 
 export async function getCheckpoint(chainId: number, contractAddress: string): Promise<CheckpointRow> {
   const supabase = getServiceRoleClient();
-  const { data, error } = await supabase
+  const { data: contract, error: contractError } = await supabase
+    .from("contracts")
+    .select("id")
+    .eq("chain_id", chainId)
+    .eq("contract_address", contractAddress)
+    .single();
+  if (contractError) throw contractError;
+
+  const { data: legacy, error: legacyError } = await supabase
     .from("indexer_state")
     .select("chain_id, contract_address, last_processed_block, latest_confirmed_block, sync_status")
     .eq("chain_id", chainId)
     .eq("contract_address", contractAddress)
     .single();
-  if (error) throw error;
+  if (legacyError) throw legacyError;
+
+  const { data: canonical, error: canonicalError } = await supabase
+    .from("indexer_sync_state")
+    .select("next_block, last_processed_block, last_processed_block_hash, last_processed_parent_hash, latest_confirmed_block")
+    .eq("chain_id", chainId)
+    .eq("contract_id", contract.id)
+    .single();
+  if (canonicalError) throw canonicalError;
+
+  if (
+    BigInt(legacy.last_processed_block) !== BigInt(canonical.last_processed_block) ||
+    nullableBigInt(legacy.latest_confirmed_block) !== nullableBigInt(canonical.latest_confirmed_block) ||
+    BigInt(canonical.next_block) !== BigInt(canonical.last_processed_block) + 1n
+  ) {
+    throw new CheckpointConsistencyError(
+      `Checkpoint ledgers disagree for chain ${chainId}, contract ${contractAddress}: ` +
+        `indexer_state=${legacy.last_processed_block}/${legacy.latest_confirmed_block}, ` +
+        `indexer_sync_state=${canonical.last_processed_block}/${canonical.latest_confirmed_block}/next=${canonical.next_block}.`
+    );
+  }
 
   return {
-    chainId: data.chain_id,
-    contractAddress: data.contract_address,
-    lastProcessedBlock: BigInt(data.last_processed_block),
-    latestConfirmedBlock: data.latest_confirmed_block !== null ? BigInt(data.latest_confirmed_block) : null,
-    syncStatus: data.sync_status,
+    chainId: legacy.chain_id,
+    contractAddress: legacy.contract_address,
+    lastProcessedBlock: BigInt(legacy.last_processed_block),
+    lastProcessedBlockHash: canonical.last_processed_block_hash,
+    lastProcessedParentHash: canonical.last_processed_parent_hash,
+    latestConfirmedBlock: nullableBigInt(legacy.latest_confirmed_block),
+    syncStatus: legacy.sync_status,
   };
+}
+
+function nullableBigInt(value: string | number | null): bigint | null {
+  return value === null ? null : BigInt(value);
 }
 
 export async function updateCheckpointProgress(params: {
@@ -87,6 +132,19 @@ export async function updateCheckpointProgress(params: {
     p_parent_hash: params.parentHash,
     p_block_time: new Date(Number(params.blockTimestamp) * 1000).toISOString(),
     p_latest_confirmed_block: params.latestConfirmedBlock.toString(),
+  });
+  if (error) throw error;
+}
+
+export async function rewindCheckpointToDeployment(params: {
+  chainId: number;
+  contractAddress: string;
+  deploymentBlock: number;
+}): Promise<void> {
+  const { error } = await getServiceRoleClient().rpc("rewind_indexer_checkpoint_to_deployment", {
+    p_chain_id: params.chainId,
+    p_contract_address: params.contractAddress,
+    p_deployment_block: params.deploymentBlock,
   });
   if (error) throw error;
 }

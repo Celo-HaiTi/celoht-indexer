@@ -3,10 +3,13 @@
 Runs as a long-lived Node.js process (not serverless — it holds an open
 poll loop and an HTTP health server).
 
-Apply `migrations/001_indexer_schema.sql` (or the equivalent reviewed
-`celoht-supabase` migration) before starting. Configure only the Celo Sepolia
-manifest in this release; Mainnet intentionally fails closed. The database
-role should be limited to the indexer-owned tables in `DATA_MODEL.md`.
+Apply `migrations/001_indexer_schema.sql`, `002_atomic_checkpoint.sql`, and
+`003_checkpoint_recovery.sql` (or equivalent reviewed `celoht-supabase`
+migrations) before starting. Migration 003 enables RLS on indexer-owned tables,
+keeps writes service-role-only, and adds guarded checkpoint recovery. Configure
+only the Celo Sepolia manifest in this release; Mainnet intentionally fails
+closed. The database role should be limited to the indexer-owned tables in
+`DATA_MODEL.md`.
 
 ```bash
 npm ci
