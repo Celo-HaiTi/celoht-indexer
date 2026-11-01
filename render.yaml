@@ -9,7 +9,7 @@ services:
     autoDeploy: true
     envVars:
       - key: NODE_VERSION
-        value: "20"
+        value: "22"
       - key: CELO_NETWORK
         value: "celoSepolia"
       - key: CONFIRMATIONS
