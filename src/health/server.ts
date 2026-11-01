@@ -4,6 +4,7 @@ import { getServiceRoleClient } from "@/db/supabaseClient";
 import { getEnv } from "@/config/env";
 import type { DeploymentMetadata } from "@/config/network";
 import { logger } from "@/util/logger";
+import { formatErrorMessage, serializeError } from "@/util/errorSerializer";
 
 /**
  * Reports health for: RPC reachability, chain ID match, chain head vs.
@@ -62,7 +63,7 @@ export function startHealthServer(params: {
         blocksBehind: Math.max(0, Number(targetBlock) - Number(c.last_processed_block)),
         latestConfirmedBlock: c.latest_confirmed_block,
         syncStatus: c.sync_status,
-        lastError: c.last_error,
+        lastError: c.last_error === null ? null : formatErrorMessage(c.last_error),
         lastSuccessfulSync: c.last_successful_sync_at,
       }));
       const allCheckpointsCaughtUp =
@@ -85,7 +86,7 @@ export function startHealthServer(params: {
         })
       );
     } catch (err) {
-      logger.error("health_check_failed", { error: String(err) });
+      logger.error("health_check_failed", { error: serializeError(err) });
       res.writeHead(503, { "content-type": "application/json" }).end(
         JSON.stringify({ status: "down", reason: "unexpected_error" })
       );

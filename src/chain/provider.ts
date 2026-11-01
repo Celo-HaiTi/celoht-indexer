@@ -2,6 +2,8 @@ import { createPublicClient, http, type PublicClient } from "viem";
 import { getEnv } from "@/config/env";
 import type { DeploymentMetadata } from "@/config/network";
 import { NetworkConfigError } from "@/config/network";
+import { logger } from "@/util/logger";
+import { serializeError } from "@/util/errorSerializer";
 
 /**
  * Creates the RPC client and verifies, before any indexing begins, that the
@@ -19,7 +21,18 @@ export async function createVerifiedClient(meta: DeploymentMetadata): Promise<Pu
     }),
   });
 
-  const observedChainId = await client.getChainId();
+  logger.info("rpc_chain_id_check_started", { network: meta.network, expectedChainId: meta.chainId });
+  let observedChainId: number;
+  try {
+    observedChainId = await client.getChainId();
+  } catch (error) {
+    logger.error("rpc_chain_id_check_failed", {
+      network: meta.network,
+      expectedChainId: meta.chainId,
+      error: serializeError(error),
+    });
+    throw error;
+  }
   if (observedChainId !== meta.chainId) {
     throw new NetworkConfigError(
       `RPC endpoint reports chainId ${observedChainId}, but deployment metadata for ` +
@@ -27,23 +40,35 @@ export async function createVerifiedClient(meta: DeploymentMetadata): Promise<Pu
         `mismatched chain.`
     );
   }
+  logger.info("rpc_chain_id_verified", { network: meta.network, chainId: observedChainId });
 
-  const addresses = [
-    meta.usdm,
-    meta.agentRegistry,
-    meta.servicePayments,
-    meta.education,
-    meta.reforestation,
-    meta.governance,
-  ] as `0x${string}`[];
-  for (const address of new Set(addresses.map((value) => value.toLowerCase()))) {
-    const bytecode = await client.getBytecode({ address: address as `0x${string}` });
+  const contracts = [
+    { name: "USDm", address: meta.usdm },
+    { name: "agentRegistry", address: meta.agentRegistry },
+    { name: "servicePayments", address: meta.servicePayments },
+    { name: "education", address: meta.education },
+    { name: "reforestation", address: meta.reforestation },
+    { name: "governance", address: meta.governance },
+  ];
+  for (const contract of contracts) {
+    let bytecode: `0x${string}` | undefined;
+    try {
+      bytecode = await client.getBytecode({ address: contract.address as `0x${string}` });
+    } catch (error) {
+      logger.error("rpc_contract_code_check_failed", {
+        network: meta.network,
+        contract: contract.name,
+        error: serializeError(error),
+      });
+      throw error;
+    }
     if (!bytecode || bytecode === "0x") {
       throw new NetworkConfigError(
-        `Deployment metadata address ${address} has no contract bytecode on chain ${meta.chainId}. ` +
+        `Deployment metadata address for ${contract.name} has no contract bytecode on chain ${meta.chainId}. ` +
           "Refusing to index a wrong or undeployed contract."
       );
     }
+    logger.info("rpc_contract_code_verified", { network: meta.network, contract: contract.name });
   }
 
   return client;

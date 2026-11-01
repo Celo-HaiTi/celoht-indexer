@@ -1,4 +1,7 @@
 import { describe, it, expect } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import {
   loadDeploymentMetadata,
   NetworkConfigError,
@@ -7,6 +10,18 @@ import {
 } from "@/config/network";
 
 describe("loadDeploymentMetadata", () => {
+  it("fails closed when the allowed network manifest is missing", () => {
+    const originalDirectory = process.cwd();
+    const emptyWorkspace = mkdtempSync(path.join(tmpdir(), "celoht-indexer-no-manifest-"));
+    try {
+      process.chdir(emptyWorkspace);
+      expect(() => loadDeploymentMetadata("celoSepolia")).toThrow(/No deployment metadata file found/);
+    } finally {
+      process.chdir(originalDirectory);
+      rmSync(emptyWorkspace, { recursive: true, force: true });
+    }
+  });
+
   it("loads and validates the official celoSepolia deployment file", () => {
     const meta = loadDeploymentMetadata("celoSepolia");
     expect(meta.chainId).toBe(CELO_SEPOLIA_CHAIN_ID);

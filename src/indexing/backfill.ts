@@ -4,6 +4,7 @@ import { decodeLog, MalformedEventError } from "@/indexing/eventDecoder";
 import { persistEvent } from "@/indexing/persist";
 import { updateCheckpointProgress, recordCheckpointError } from "@/db/checkpoints";
 import { logger } from "@/util/logger";
+import { formatErrorMessage, serializeError } from "@/util/errorSerializer";
 import type { AbiItem } from "@/config/abiLoader";
 import type { IndexTargetName } from "@/config/network";
 
@@ -77,7 +78,7 @@ export async function runBackfill(params: BackfillParams): Promise<void> {
               contract,
               tx: log.transactionHash,
               logIndex: log.logIndex,
-              error: err.message,
+              error: serializeError(err),
             });
             throw err;
           }
@@ -106,7 +107,7 @@ export async function runBackfill(params: BackfillParams): Promise<void> {
     } catch (err) {
       if (!params.dryRun) {
         try {
-          await recordCheckpointError({ chainId, contractAddress, errorMessage: String(err) });
+          await recordCheckpointError({ chainId, contractAddress, errorMessage: formatErrorMessage(err) });
         } catch (checkpointError) {
           logger.error("checkpoint_error_record_failed", { contract, error: String(checkpointError) });
         }

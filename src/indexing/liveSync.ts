@@ -4,6 +4,7 @@ import { runBackfill } from "@/indexing/backfill";
 import { detectAndHandleReorg } from "@/indexing/reorg";
 import { getCheckpoint } from "@/db/checkpoints";
 import { logger } from "@/util/logger";
+import { serializeError } from "@/util/errorSerializer";
 import type { AbiItem } from "@/config/abiLoader";
 import type { IndexTargetName } from "@/config/network";
 
@@ -84,7 +85,7 @@ export function startLiveSyncLoop(params: LiveSyncParams & { pollIntervalMs: num
   const loop = async () => {
     while (!stopped) {
       currentRun = runSyncPass(params).catch((err) => {
-        logger.error("sync_pass_failed", { error: String(err) });
+        logger.error("sync_pass_failed", { error: serializeError(err) });
       });
       await currentRun;
       if (stopped) break;

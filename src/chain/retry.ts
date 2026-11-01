@@ -1,4 +1,5 @@
 import { logger } from "@/util/logger";
+import { serializeError } from "@/util/errorSerializer";
 
 /**
  * Wraps an RPC call with exponential backoff. Used around log fetches and
@@ -20,7 +21,7 @@ export async function withRetry<T>(
       lastError = err;
       if (attempt === opts.maxRetries) break;
       const delay = Math.min(baseDelay * 2 ** attempt, maxDelay);
-      logger.warn("rpc_retry", { label: opts.label, attempt, delayMs: delay, error: String(err) });
+      logger.warn("rpc_retry", { label: opts.label, attempt, delayMs: delay, error: serializeError(err) });
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }

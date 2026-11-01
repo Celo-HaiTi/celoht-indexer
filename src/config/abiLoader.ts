@@ -1,6 +1,7 @@
 import { readFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { CONTRACT_DISPLAY_NAMES, type ContractName } from "@/config/network";
+import { formatErrorMessage } from "@/util/errorSerializer";
 
 /**
  * Loads a contract ABI from abis/<DisplayName>.json.
@@ -46,7 +47,7 @@ export function loadAbiFile(displayName: string): AbiItem[] {
   try {
     raw = JSON.parse(readFileSync(filePath, "utf8"));
   } catch (err) {
-    throw new AbiLoadError(`Failed to parse ${filePath} as JSON: ${(err as Error).message}`);
+    throw new AbiLoadError(`Failed to parse ${filePath} as JSON: ${formatErrorMessage(err)}`);
   }
 
   const abi = Array.isArray(raw) ? raw : (raw as { abi?: unknown }).abi;

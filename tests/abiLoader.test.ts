@@ -1,9 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { loadAbi, eventNamesFromAbi } from "@/config/abiLoader";
+import { loadAbi, loadAbiFile, eventNamesFromAbi, AbiLoadError } from "@/config/abiLoader";
 import { loadUsdmAbi, VERIFIED_USDM_ABI_SHA256 } from "@/config/token";
 import { CONTRACT_NAMES } from "@/config/network";
 
 describe("loadAbi", () => {
+  it("fails closed when a required ABI file is missing", () => {
+    expect(() => loadAbiFile("CeloHTMissingTestArtifact")).toThrow(AbiLoadError);
+  });
+
   it("loads event-bearing official ABIs for every indexed CeloHT contract", () => {
     for (const contract of CONTRACT_NAMES) {
       expect(eventNamesFromAbi(loadAbi(contract)).length, contract).toBeGreaterThan(0);

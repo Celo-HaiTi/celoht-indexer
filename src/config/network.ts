@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { readFileSync, existsSync } from "node:fs";
 import path from "node:path";
+import { formatErrorMessage } from "@/util/errorSerializer";
 
 /**
  * Loads and validates official deployment metadata from deployments/<network>.json.
@@ -61,7 +62,7 @@ export const DeploymentMetadataSchema = z.object({
   verification: z.string(),
   verificationStatus: z.string().optional(),
   verificationSource: z.string(),
-  abiReferences: z.record(z.string()).optional(),
+  abiReferences: z.record(z.string(), z.string()).optional(),
   gitCommit: z.string().nullable(),
   canonicalRepositoryCommit: z.string().regex(/^[0-9a-f]{40}$/).optional(),
   metadataSource: z.string(),
@@ -132,7 +133,7 @@ export function loadDeploymentMetadata(network: string): DeploymentMetadata {
   try {
     raw = JSON.parse(readFileSync(filePath, "utf8"));
   } catch (err) {
-    throw new NetworkConfigError(`Failed to parse ${filePath} as JSON: ${(err as Error).message}`);
+    throw new NetworkConfigError(`Failed to parse ${filePath} as JSON: ${formatErrorMessage(err)}`);
   }
 
   const parsed = DeploymentMetadataSchema.safeParse(raw);

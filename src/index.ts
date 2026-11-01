@@ -7,18 +7,24 @@ import { ensureCheckpoint } from "@/db/checkpoints";
 import { startLiveSyncLoop, type SyncTarget } from "@/indexing/liveSync";
 import { startHealthServer } from "@/health/server";
 import { getServiceRoleClient } from "@/db/supabaseClient";
-import { logger } from "@/util/logger";
+import { logger, logStartupFailure } from "@/util/logger";
+import { serializeError } from "@/util/errorSerializer";
+
+let startupStage = "environment_validation";
 
 async function main(): Promise<void> {
   const env = getEnv();
+  startupStage = "deployment_manifest_validation";
   const meta = loadDeploymentMetadata(env.CELO_NETWORK);
 
   logger.info("indexer_starting", { network: meta.network, chainId: meta.chainId });
 
+  startupStage = "rpc_verification";
   const client = await createVerifiedClient(meta);
 
   const targets: SyncTarget[] = [];
   for (const contract of CONTRACT_NAMES) {
+    startupStage = `contract_setup:${contract}`;
     try {
       const abi = loadAbi(contract);
       const address = contractAddress(meta, contract);
@@ -37,6 +43,7 @@ async function main(): Promise<void> {
       targets.push({ contract, contractAddress: address, abi, deploymentBlock: deploymentBlock(meta, contract) });
       logger.info("contract_ready", { contract, address });
     } catch (err) {
+      logger.error("contract_initialization_failed", { contract, error: serializeError(err) });
       if (err instanceof AbiLoadError) {
         logger.error("required_abi_unavailable", { contract, error: err.message });
         throw err;
@@ -45,6 +52,7 @@ async function main(): Promise<void> {
     }
   }
 
+  startupStage = "usdm_abi_and_checkpoint_setup";
   const usdmStartBlock = env.USDM_START_BLOCK;
   const usdmAbi = loadUsdmAbi();
   if (!env.DRY_RUN) {
@@ -65,6 +73,7 @@ async function main(): Promise<void> {
     throw new Error("No contracts are indexable (no ABI files present). Populate abis/ before starting. See abis/README.md.");
   }
 
+  startupStage = "supabase_health_write";
   if (!env.DRY_RUN) {
     const { error } = await getServiceRoleClient().from("system_health").insert({
       component: "indexer",
@@ -74,6 +83,7 @@ async function main(): Promise<void> {
     if (error) throw error;
   }
 
+  startupStage = "health_server_start";
   const healthServer = startHealthServer({
     client,
     meta,
@@ -81,6 +91,7 @@ async function main(): Promise<void> {
     expectedCheckpointCount: targets.length,
   });
 
+  startupStage = "live_sync_start";
   const sync = startLiveSyncLoop({
     client,
     chainId: meta.chainId,
@@ -101,9 +112,10 @@ async function main(): Promise<void> {
 
   process.on("SIGINT", () => void shutdown("SIGINT"));
   process.on("SIGTERM", () => void shutdown("SIGTERM"));
+  startupStage = "running";
 }
 
 main().catch((err) => {
-  logger.error("indexer_fatal_error", { error: String(err) });
+  logStartupFailure(startupStage, err);
   process.exit(1);
 });
