@@ -30,6 +30,13 @@ the historical endpoint to return a valid block/hash for Celo Sepolia block
 historical-retention error. Set `CELO_SEPOLIA_ARCHIVE_RPC_URL` as an unsynced
 secret in Render; never put credential-bearing RPC URLs in this file.
 
+Render defaults to a maximum log range of `2000` blocks, minimum adaptive
+range of `100`, two concurrent archive log requests during split recovery, and
+one verified chunk per contract per sync pass. This yields back to live-head
+polling between chunks; tune with `BACKFILL_BATCH_SIZE`,
+`BACKFILL_MIN_BATCH_SIZE`, `BACKFILL_RPC_CONCURRENCY`, and
+`BACKFILL_CHUNKS_PER_PASS` only after observing provider limits and backlog.
+
 For Render, keep `healthCheckPath` set to `/health`. It checks RPC and database
 availability without failing solely because the initial historical backfill is
 still catching up. `/readyz` is stricter and returns 503 until every checkpoint

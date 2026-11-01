@@ -1,5 +1,5 @@
 import type { PublicClient } from "viem";
-import { classifyRpcError, RpcProviderCapabilityError, withRetry } from "@/chain/retry";
+import { classifyRpcError, isSplittableLogRangeError, RpcProviderCapabilityError, sanitizedRpcMessage, withRetry } from "@/chain/retry";
 import { decodeLog, MalformedEventError } from "@/indexing/eventDecoder";
 import { persistEvent } from "@/indexing/persist";
 import { updateCheckpointProgress, recordCheckpointError } from "@/db/checkpoints";
@@ -17,6 +17,10 @@ export interface BackfillParams {
   fromBlock: bigint;
   toBlock: bigint; // last confirmed block, inclusive
   batchSize: number;
+  currentBatchSize?: number;
+  minBatchSize?: number;
+  maxConcurrency?: number;
+  maxChunksPerRun?: number;
   maxRetries: number;
   dryRun?: boolean;
 }
@@ -28,29 +32,47 @@ export interface BackfillParams {
  * boundary rather than re-scanning from the deployment block or silently
  * skipping a range.
  */
-export async function runBackfill(params: BackfillParams): Promise<void> {
+export async function runBackfill(params: BackfillParams): Promise<number> {
   const { client, chainId, contract, contractAddress, abi, toBlock, batchSize, maxRetries } = params;
+  const minBatchSize = params.minBatchSize ?? 1;
+  const maxConcurrency = params.maxConcurrency ?? 1;
+  const maxChunksPerRun = params.maxChunksPerRun ?? Number.POSITIVE_INFINITY;
+  if (!Number.isInteger(batchSize) || batchSize < 1 || !Number.isInteger(minBatchSize) || minBatchSize < 1 || minBatchSize > batchSize) {
+    throw new RangeError("Backfill batch sizes must be positive integers with minBatchSize <= batchSize");
+  }
+  if (!Number.isInteger(maxConcurrency) || maxConcurrency < 1 || !(Number.isInteger(maxChunksPerRun) && maxChunksPerRun > 0) && maxChunksPerRun !== Number.POSITIVE_INFINITY) {
+    throw new RangeError("Backfill concurrency and chunks-per-run must be positive integers");
+  }
   let cursor = params.fromBlock;
+  let currentBatchSize = params.currentBatchSize ?? batchSize;
+  if (!Number.isInteger(currentBatchSize) || currentBatchSize < minBatchSize || currentBatchSize > batchSize) {
+    throw new RangeError("currentBatchSize must be between minBatchSize and batchSize");
+  }
+  let completedChunks = 0;
+  const logRequestLimiter = new Semaphore(maxConcurrency);
 
   if (cursor > toBlock) {
     logger.info("backfill_already_caught_up", { contract, cursor: cursor.toString(), toBlock: toBlock.toString() });
-    return;
+    return currentBatchSize;
   }
 
   logger.info("backfill_start", { contract, fromBlock: cursor.toString(), toBlock: toBlock.toString() });
 
   while (cursor <= toBlock) {
-    const chunkEnd = cursor + BigInt(batchSize) - 1n > toBlock ? toBlock : cursor + BigInt(batchSize) - 1n;
+    const chunkEnd = cursor + BigInt(currentBatchSize) - 1n > toBlock ? toBlock : cursor + BigInt(currentBatchSize) - 1n;
 
     try {
-      const logs = await fetchLogsInBoundedRanges({
+      const fetched = await fetchLogsInBoundedRanges({
         client,
         contract,
         contractAddress,
         fromBlock: cursor,
         toBlock: chunkEnd,
+        minBatchSize,
         maxRetries,
+        limiter: logRequestLimiter,
       });
+      const logs = fetched.logs;
       const eventBlockCache = new Map<bigint, Promise<Awaited<ReturnType<PublicClient["getBlock"]>>>>();
 
       for (const log of logs) {
@@ -132,6 +154,32 @@ export async function runBackfill(params: BackfillParams): Promise<void> {
 
       logger.info("backfill_chunk_complete", { contract, from: cursor.toString(), to: chunkEnd.toString(), events: logs.length });
       cursor = chunkEnd + 1n;
+      completedChunks += 1;
+
+      const previousBatchSize = currentBatchSize;
+      currentBatchSize = fetched.splitCount > 0
+        ? Math.max(minBatchSize, fetched.smallestSuccessfulRangeSize)
+        : Math.min(batchSize, Math.max(currentBatchSize + 1, Math.ceil(currentBatchSize * 1.25)));
+      if (currentBatchSize !== previousBatchSize) {
+        logger.info("backfill_range_size_adapted", {
+          contract,
+          previousBatchSize,
+          nextBatchSize: currentBatchSize,
+          minimumBatchSize: minBatchSize,
+          maximumBatchSize: batchSize,
+          splitCount: fetched.splitCount,
+        });
+      }
+
+      if (completedChunks >= maxChunksPerRun && cursor <= toBlock) {
+        logger.info("backfill_pass_yield", {
+          contract,
+          lastCompletedBlock: (cursor - 1n).toString(),
+          nextBlock: cursor.toString(),
+          remainingToBlock: toBlock.toString(),
+        });
+        return currentBatchSize;
+      }
     } catch (err) {
       if (!params.dryRun) {
         try {
@@ -145,6 +193,7 @@ export async function runBackfill(params: BackfillParams): Promise<void> {
   }
 
   logger.info("backfill_complete", { contract, toBlock: toBlock.toString() });
+  return currentBatchSize;
 }
 
 async function fetchLogsInBoundedRanges(params: {
@@ -153,49 +202,94 @@ async function fetchLogsInBoundedRanges(params: {
   contractAddress: `0x${string}`;
   fromBlock: bigint;
   toBlock: bigint;
+  minBatchSize: number;
   maxRetries: number;
-}): Promise<Awaited<ReturnType<PublicClient["getLogs"]>>> {
+  limiter: Semaphore;
+}): Promise<{ logs: Awaited<ReturnType<PublicClient["getLogs"]>>; smallestSuccessfulRangeSize: number; splitCount: number }> {
+  const requestedRangeSize = params.toBlock - params.fromBlock + 1n;
   try {
-    return await withRetry(
-      () => params.client.getLogs({
-        address: params.contractAddress,
-        fromBlock: params.fromBlock,
-        toBlock: params.toBlock,
-      }),
-      {
-        maxRetries: params.maxRetries,
-        label: `getLogs(${params.contract}, ${params.fromBlock}-${params.toBlock})`,
-        endpointRole: "archive",
-        requestedRange: `${params.fromBlock}-${params.toBlock}`,
+    const logs = await params.limiter.run(() => withRetry(
+        () => params.client.getLogs({
+          address: params.contractAddress,
+          fromBlock: params.fromBlock,
+          toBlock: params.toBlock,
+        }),
+        {
+          maxRetries: params.maxRetries,
+          label: `getLogs(${params.contract}, ${params.fromBlock}-${params.toBlock})`,
+          endpointRole: "archive",
+          requestedRange: `${params.fromBlock}-${params.toBlock}`,
+        }
+      ));
+    for (const log of logs) {
+      if (log.blockNumber === null || log.blockNumber < params.fromBlock || log.blockNumber > params.toBlock) {
+        throw new MalformedEventError(
+          `Archive RPC returned a log outside requested range ${params.fromBlock}-${params.toBlock}.`
+        );
       }
-    );
+    }
+    return { logs, smallestSuccessfulRangeSize: Number(requestedRangeSize), splitCount: 0 };
   } catch (error) {
-    if (classifyRpcError(error) !== "range_limit") throw error;
-    if (params.fromBlock >= params.toBlock) {
+    const category = classifyRpcError(error);
+    if (!isSplittableLogRangeError(category)) throw error;
+    if (requestedRangeSize < BigInt(params.minBatchSize) * 2n) {
       logger.error("rpc_log_range_unserviceable", {
         endpointRole: "archive",
         contract: params.contract,
         requestedRange: `${params.fromBlock}-${params.toBlock}`,
-        errorCategory: "range_limit",
+        rangeSize: Number(requestedRangeSize),
+        minimumBatchSize: params.minBatchSize,
+        errorCategory: category,
+        providerMessage: sanitizedRpcMessage(error),
         error: serializeError(error),
       });
       throw new RpcProviderCapabilityError(
-        `Archive RPC cannot serve getLogs for block ${params.fromBlock} even as a single-block range`,
-        "range_limit",
+        `Archive RPC cannot serve getLogs for range ${params.fromBlock}-${params.toBlock} at configured minimum size ${params.minBatchSize} (${category})`,
+        category,
         { cause: error }
       );
     }
 
-    const midpoint = params.fromBlock + (params.toBlock - params.fromBlock) / 2n;
+    const leftSize = requestedRangeSize / 2n;
+    const midpoint = params.fromBlock + leftSize - 1n;
     logger.warn("rpc_log_range_split", {
       endpointRole: "archive",
       contract: params.contract,
       requestedRange: `${params.fromBlock}-${params.toBlock}`,
       splitAt: midpoint.toString(),
+      rangeSize: Number(requestedRangeSize),
+      minimumBatchSize: params.minBatchSize,
+      errorCategory: category,
+      providerMessage: sanitizedRpcMessage(error),
+      error: serializeError(error),
     });
-    const firstHalf = await fetchLogsInBoundedRanges({ ...params, toBlock: midpoint });
-    const secondHalf = await fetchLogsInBoundedRanges({ ...params, fromBlock: midpoint + 1n });
-    return [...firstHalf, ...secondHalf];
+    const [firstHalf, secondHalf] = await Promise.all([
+      fetchLogsInBoundedRanges({ ...params, toBlock: midpoint }),
+      fetchLogsInBoundedRanges({ ...params, fromBlock: midpoint + 1n }),
+    ]);
+    return {
+      logs: [...firstHalf.logs, ...secondHalf.logs],
+      smallestSuccessfulRangeSize: Math.min(firstHalf.smallestSuccessfulRangeSize, secondHalf.smallestSuccessfulRangeSize),
+      splitCount: firstHalf.splitCount + secondHalf.splitCount + 1,
+    };
+  }
+}
+
+class Semaphore {
+  private active = 0;
+  private readonly waiters: Array<() => void> = [];
+
+  constructor(private readonly limit: number) {}
+
+  async run<T>(operation: () => Promise<T>): Promise<T> {
+    if (this.active >= this.limit) await new Promise<void>((resolve) => this.waiters.push(resolve));
+    this.active += 1;
+    try {
+      return await operation();
+    } finally {
+      this.active -= 1;
+      this.waiters.shift()?.();
+    }
   }
 }
 

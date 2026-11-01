@@ -7,6 +7,15 @@ const { operations } = vi.hoisted(() => ({
     persisted: [] as Array<Record<string, unknown>>,
     checkpoints: [] as Array<Record<string, unknown>>,
     errors: [] as Array<Record<string, unknown>>,
+    warnings: [] as Array<{ event: string; details: Record<string, unknown> }>,
+  },
+}));
+
+vi.mock("@/util/logger", () => ({
+  logger: {
+    info: vi.fn(),
+    warn: vi.fn((event: string, details: Record<string, unknown>) => operations.warnings.push({ event, details })),
+    error: vi.fn(),
   },
 }));
 
@@ -89,6 +98,7 @@ describe("historical backfill", () => {
     operations.persisted.splice(0);
     operations.checkpoints.splice(0);
     operations.errors.splice(0);
+    operations.warnings.splice(0);
   });
 
   it("splits a rejected bounded log range into adjacent ranges without skipping blocks", async () => {
@@ -109,6 +119,96 @@ describe("historical backfill", () => {
     expect(requests).toEqual([[1n, 4n], [1n, 2n], [3n, 4n]]);
     expect(operations.checkpoints).toHaveLength(1);
     expect(operations.checkpoints[0]).toMatchObject({ lastProcessedBlock: 4n });
+  });
+
+  it("advances across an empty range with a verified boundary checkpoint", async () => {
+    const client = {
+      getLogs: vi.fn().mockResolvedValue([]),
+      getBlock: vi.fn(async ({ blockNumber }: { blockNumber: bigint }) => block(blockNumber)),
+    } as unknown as PublicClient;
+
+    await runBackfill(params(client, { fromBlock: 20n, toBlock: 24n, batchSize: 5 }));
+
+    expect(client.getLogs).toHaveBeenCalledWith({ address: contractAddress, fromBlock: 20n, toBlock: 24n });
+    expect(operations.persisted).toHaveLength(0);
+    expect(operations.checkpoints).toEqual([expect.objectContaining({ lastProcessedBlock: 24n, blockHash: hash(24) })]);
+  });
+
+  it("yields after verified chunks and resumes at the next block without gaps", async () => {
+    const requests: Array<[bigint, bigint]> = [];
+    const client = {
+      getLogs: vi.fn(async ({ fromBlock, toBlock }: { fromBlock: bigint; toBlock: bigint }) => {
+        requests.push([fromBlock, toBlock]);
+        return [];
+      }),
+      getBlock: vi.fn(async ({ blockNumber }: { blockNumber: bigint }) => block(blockNumber)),
+    } as unknown as PublicClient;
+
+    await runBackfill(params(client, { fromBlock: 10n, toBlock: 15n, batchSize: 2, maxChunksPerRun: 1 }));
+    await runBackfill(params(client, { fromBlock: 12n, toBlock: 15n, batchSize: 2, maxChunksPerRun: 1 }));
+    await runBackfill(params(client, { fromBlock: 14n, toBlock: 15n, batchSize: 2, maxChunksPerRun: 1 }));
+
+    expect(requests).toEqual([[10n, 11n], [12n, 13n], [14n, 15n]]);
+    expect(operations.checkpoints.map((checkpoint) => checkpoint.lastProcessedBlock)).toEqual([11n, 13n, 15n]);
+  });
+
+  it("adapts downward for dense ranges then gradually grows after successful smaller ranges", async () => {
+    const requests: Array<[bigint, bigint]> = [];
+    const client = {
+      getLogs: vi.fn(async ({ fromBlock, toBlock }: { fromBlock: bigint; toBlock: bigint }) => {
+        requests.push([fromBlock, toBlock]);
+        if (toBlock - fromBlock + 1n > 4n) {
+          throw { code: -32005, message: "query returned more than 1000 logs at https://rpc.example.test/?api_key=do-not-log" };
+        }
+        return [];
+      }),
+      getBlock: vi.fn(async ({ blockNumber }: { blockNumber: bigint }) => block(blockNumber)),
+    } as unknown as PublicClient;
+
+    const nextBatchSize = await runBackfill(params(client, { fromBlock: 1n, toBlock: 20n, batchSize: 8, minBatchSize: 2 }));
+
+    expect(requests.slice(0, 3)).toEqual([[1n, 8n], [1n, 4n], [5n, 8n]]);
+    expect(requests).toContainEqual([9n, 12n]);
+    expect(requests).toContainEqual([13n, 17n]);
+    expect(requests).toContainEqual([13n, 14n]);
+    expect(requests).toContainEqual([15n, 17n]);
+    expect(operations.checkpoints.map((checkpoint) => checkpoint.lastProcessedBlock)).toEqual([8n, 12n, 17n, 19n, 20n]);
+    expect(nextBatchSize).toBe(4);
+    const splitWarning = operations.warnings.find(({ event }) => event === "rpc_log_range_split");
+    expect(splitWarning?.details).toMatchObject({ errorCategory: "too_many_logs" });
+    expect(splitWarning?.details.providerMessage).toContain("query returned more than 1000 logs");
+    expect(splitWarning?.details.providerMessage).not.toContain("do-not-log");
+  });
+
+  it("bounds concurrent split queries and covers the complete interval without gaps", async () => {
+    let active = 0;
+    let maximumActive = 0;
+    const successfulRanges: Array<[bigint, bigint]> = [];
+    const client = {
+      getLogs: vi.fn(async ({ fromBlock, toBlock }: { fromBlock: bigint; toBlock: bigint }) => {
+        const rangeSize = toBlock - fromBlock + 1n;
+        if (rangeSize > 2n) throw { code: -32602, message: "block range exceeds provider maximum" };
+        active += 1;
+        maximumActive = Math.max(maximumActive, active);
+        await new Promise((resolve) => setTimeout(resolve, 2));
+        active -= 1;
+        successfulRanges.push([fromBlock, toBlock]);
+        return [];
+      }),
+      getBlock: vi.fn(async ({ blockNumber }: { blockNumber: bigint }) => block(blockNumber)),
+    } as unknown as PublicClient;
+
+    await runBackfill(params(client, {
+      fromBlock: 1n,
+      toBlock: 8n,
+      batchSize: 8,
+      minBatchSize: 2,
+      maxConcurrency: 2,
+    }));
+
+    expect(maximumActive).toBe(2);
+    successfulRanges.sort((left, right) => Number(left[0] - right[0]));
+    expect(successfulRanges).toEqual([[1n, 2n], [3n, 4n], [5n, 6n], [7n, 8n]]);
   });
 
   it("uses one verified archive header per event-bearing block and persists a canonical checkpoint", async () => {
@@ -159,6 +259,45 @@ describe("historical backfill", () => {
     });
     expect(client.getLogs).toHaveBeenCalledOnce();
     expect(client.getBlock).not.toHaveBeenCalled();
+    expect(operations.checkpoints).toHaveLength(0);
+  });
+
+  it("does not split timeouts or provider-internal errors", async () => {
+    const client = {
+      getLogs: vi.fn().mockRejectedValue({ code: -32603, message: "Internal JSON-RPC error" }),
+      getBlock: vi.fn(),
+    } as unknown as PublicClient;
+
+    await expect(runBackfill(params(client, { batchSize: 8, maxRetries: 0 }))).rejects.toMatchObject({
+      code: -32603,
+      message: "Internal JSON-RPC error",
+    });
+    expect(client.getLogs).toHaveBeenCalledOnce();
+    expect(operations.checkpoints).toHaveLength(0);
+  });
+
+  it("retries timeouts but never range-splits them", async () => {
+    const client = {
+      getLogs: vi.fn().mockRejectedValue({ code: "ETIMEDOUT", message: "request timed out" }),
+      getBlock: vi.fn(),
+    } as unknown as PublicClient;
+
+    await expect(runBackfill(params(client, { batchSize: 8, maxRetries: 1 }))).rejects.toMatchObject({
+      code: "ETIMEDOUT",
+    });
+    expect(client.getLogs).toHaveBeenCalledTimes(2);
+    expect(operations.checkpoints).toHaveLength(0);
+  });
+
+  it("terminates at the configured minimum instead of repeatedly splitting", async () => {
+    const client = {
+      getLogs: vi.fn().mockRejectedValue({ code: -32005, message: "query returned more than 1000 logs" }),
+      getBlock: vi.fn(),
+    } as unknown as PublicClient;
+
+    await expect(runBackfill(params(client, { fromBlock: 1n, toBlock: 2n, batchSize: 2, minBatchSize: 2 })))
+      .rejects.toMatchObject({ name: "RpcProviderCapabilityError", category: "too_many_logs" });
+    expect(client.getLogs).toHaveBeenCalledOnce();
     expect(operations.checkpoints).toHaveLength(0);
   });
 });

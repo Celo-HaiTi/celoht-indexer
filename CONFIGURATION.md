@@ -16,7 +16,10 @@ ERC-20 `Transfer` event. The repository does not provide a mock or hand-authored
 fallback. The artifact must be supplied from the canonical deployment source
 and independently checked against the manifest address `0xdE9e4C3ce781b4bA68120d6261cbad65ce0aB00b`.
 | `CONFIRMATIONS` | no | Confirmation depth, default `5` |
-| `BACKFILL_BATCH_SIZE` | no | `getLogs` range size, default `2000` |
+| `BACKFILL_BATCH_SIZE` | no | Maximum adaptive `getLogs` range size, default `2000` |
+| `BACKFILL_MIN_BATCH_SIZE` | no | Smallest range used while adapting to provider limits, default `100`; if that range still fails, backfill stops with an explicit error |
+| `BACKFILL_RPC_CONCURRENCY` | no | Maximum concurrent archive `getLogs` requests during split-range recovery, default `2` |
+| `BACKFILL_CHUNKS_PER_PASS` | no | Verified chunks each contract processes before polling the live head again, default `1` |
 | `POLL_INTERVAL_MS` | no | Reconciliation interval, default `15000` |
 | `RPC_MAX_RETRIES` | no | Exponential-backoff retry count, default `5` |
 | `RPC_TIMEOUT_MS` | no | Per-request timeout, default `15000` |
@@ -26,7 +29,11 @@ and independently checked against the manifest address `0xdE9e4C3ce781b4bA68120d
 
 Mainnet is not an accepted network value. Adding it requires an authoritative smart-contract deployment manifest, matching ABIs, chain/RPC verification, and a reviewed code/configuration change.
 
-Backfill uses bounded `eth_getLogs` ranges based on `BACKFILL_BATCH_SIZE` and
-splits provider-rejected range sizes into adjacent ranges. Historical endpoints
-must provide archive access from the deployment blocks; retention failures are
-reported as permanent endpoint capability errors and are not retried.
+Backfill begins at `BACKFILL_BATCH_SIZE`, splits only provider errors classified
+as maximum block range, response-size, or too-many-logs limits, then gradually
+increases after successful smaller ranges. HTTP 429 responses honor
+`Retry-After` when provided; timeouts and provider-internal errors back off but
+never trigger range splitting. Historical retention errors are permanent and
+are not retried. Each completed chunk commits only after its logs and canonical
+boundary header have been verified; after `BACKFILL_CHUNKS_PER_PASS` chunks, the
+loop polls the live head again before continuing historical work.

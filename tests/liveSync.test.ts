@@ -85,6 +85,9 @@ describe("live sync checkpoint recovery", () => {
       chainId: 11142220,
       confirmations: 5,
       batchSize: 2000,
+      minBatchSize: 100,
+      backfillConcurrency: 2,
+      backfillChunksPerPass: 1,
       maxRetries: 0,
       targets: [target],
     };
@@ -94,6 +97,10 @@ describe("live sync checkpoint recovery", () => {
     expect(operations.backfills[0]).toMatchObject({
       fromBlock: 35343240n,
       toBlock: 35343250n,
+      batchSize: 2000,
+      minBatchSize: 100,
+      maxConcurrency: 2,
+      maxChunksPerRun: 1,
     });
     expect(operations.backfills[0]?.client).toBe(historicalClient);
     expect(operations.liveClients[0]).toBe(liveClient);
@@ -117,6 +124,9 @@ describe("live sync checkpoint recovery", () => {
       chainId: 11142220,
       confirmations: 5,
       batchSize: 2000,
+      minBatchSize: 100,
+      backfillConcurrency: 2,
+      backfillChunksPerPass: 1,
       maxRetries: 5,
       pollIntervalMs: 1000,
       targets: [target],

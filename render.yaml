@@ -16,6 +16,12 @@ services:
         value: "5"
       - key: BACKFILL_BATCH_SIZE
         value: "2000"
+      - key: BACKFILL_MIN_BATCH_SIZE
+        value: "100"
+      - key: BACKFILL_RPC_CONCURRENCY
+        value: "2"
+      - key: BACKFILL_CHUNKS_PER_PASS
+        value: "1"
       - key: POLL_INTERVAL_MS
         value: "15000"
       - key: RPC_MAX_RETRIES

@@ -23,8 +23,12 @@ export interface LiveSyncParams {
   chainId: number;
   confirmations: number;
   batchSize: number;
+  minBatchSize: number;
+  backfillConcurrency: number;
+  backfillChunksPerPass: number;
   maxRetries: number;
   targets: SyncTarget[];
+  adaptiveBatchSizes?: Map<string, number>;
   dryRun?: boolean;
 }
 
@@ -86,7 +90,9 @@ export async function runSyncPass(params: LiveSyncParams): Promise<void> {
       continue;
     }
 
-    await runBackfill({
+    const adaptiveKey = `${params.chainId}:${target.contractAddress.toLowerCase()}`;
+    const currentBatchSize = params.adaptiveBatchSizes?.get(adaptiveKey) ?? params.batchSize;
+    const nextBatchSize = await runBackfill({
       client: params.historicalClient,
       chainId: params.chainId,
       contract: target.contract,
@@ -95,9 +101,14 @@ export async function runSyncPass(params: LiveSyncParams): Promise<void> {
       fromBlock,
       toBlock: confirmedBlock,
       batchSize: params.batchSize,
+      currentBatchSize,
+      minBatchSize: params.minBatchSize,
+      maxConcurrency: params.backfillConcurrency,
+      maxChunksPerRun: params.backfillChunksPerPass,
       maxRetries: params.maxRetries,
       dryRun: params.dryRun,
     });
+    params.adaptiveBatchSizes?.set(adaptiveKey, nextBatchSize);
   }
 }
 
@@ -108,10 +119,11 @@ export function startLiveSyncLoop(params: LiveSyncParams & { pollIntervalMs: num
 } {
   let stopped = false;
   let currentRun: Promise<void> = Promise.resolve();
+  const adaptiveBatchSizes = new Map<string, number>();
 
   const loop = async () => {
     while (!stopped) {
-      currentRun = runSyncPass(params).catch((err) => {
+      currentRun = runSyncPass({ ...params, adaptiveBatchSizes }).catch((err) => {
         logger.error("sync_pass_failed", { error: serializeError(err) });
         if (hasPermanentProviderCapabilityError(err)) {
           stopped = true;

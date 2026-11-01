@@ -13,17 +13,28 @@ checkpoint (indexer_state.last_processed_block)
 ```
 
 ## Backfill
-`runBackfill` processes `[fromBlock, toBlock]` in chunks of
-`BACKFILL_BATCH_SIZE` blocks. The checkpoint advances only after a full
-chunk's logs are persisted, so a crash mid-chunk simply re-fetches that
-chunk on restart (safe due to upsert idempotency) rather than losing or
-duplicating data.
+`runBackfill` fetches logs and historical headers from the archive RPC, in
+bounded chunks up to `BACKFILL_BATCH_SIZE`. It splits only provider errors
+classified as block-range, response-size, or too-many-logs limits, preserving
+adjacent inclusive ranges exactly. After a successful smaller range, its
+adaptive size grows gradually up to the configured ceiling. HTTP 429 honors
+`Retry-After`; timeouts and provider-internal errors back off without splitting.
+Splits stop at `BACKFILL_MIN_BATCH_SIZE` and fail explicitly if the provider
+still rejects the range.
+
+Each event-bearing block header is fetched once per chunk and verified against
+the log's block hash. A verified boundary header is fetched even for an empty
+log range. The checkpoint advances only after every log in the chunk is
+persisted and that canonical boundary header is verified. A crash mid-chunk
+re-fetches that chunk safely through idempotent upserts. The bounded
+`BACKFILL_RPC_CONCURRENCY` applies to split log-range requests, and
+`BACKFILL_CHUNKS_PER_PASS` yields back to live-head polling between chunks.
 
 ## Live synchronization
-`startLiveSyncLoop` repeatedly calls the same reconcile pass used for
-backfill — there is no separate "live" code path with different semantics,
-and it does not depend on WebSocket subscriptions (poll/reconcile model),
-matching the project's reliability requirement.
+`startLiveSyncLoop` polls head/confirmations through `CELO_RPC_URL` and routes
+backfill, checkpoint verification, and reorg checks through
+`CELO_SEPOLIA_ARCHIVE_RPC_URL`. It repeatedly calls the same reconcile pass;
+there is no separate "live" indexing path and no WebSocket dependency.
 
 ## Idempotency
 Every row in `blockchain_transactions` is upserted on

@@ -42,6 +42,9 @@ describe("getEnv (fail closed)", () => {
     const env = getEnv();
     expect(env.CONFIRMATIONS).toBe(5);
     expect(env.BACKFILL_BATCH_SIZE).toBe(2000);
+    expect(env.BACKFILL_MIN_BATCH_SIZE).toBe(100);
+    expect(env.BACKFILL_RPC_CONCURRENCY).toBe(2);
+    expect(env.BACKFILL_CHUNKS_PER_PASS).toBe(1);
     expect(env.USDM_START_BLOCK).toBe(0);
     expect(env.CELO_SEPOLIA_ARCHIVE_RPC_URL).toBeUndefined();
   });
@@ -53,6 +56,11 @@ describe("getEnv (fail closed)", () => {
 
   it("rejects a malformed archive endpoint URL", () => {
     Object.assign(process.env, VALID_ENV, { CELO_SEPOLIA_ARCHIVE_RPC_URL: "not-a-url" });
+    expect(() => getEnv()).toThrow(EnvConfigError);
+  });
+
+  it("rejects a minimum backfill batch larger than the configured maximum", () => {
+    Object.assign(process.env, VALID_ENV, { BACKFILL_BATCH_SIZE: "50", BACKFILL_MIN_BATCH_SIZE: "100" });
     expect(() => getEnv()).toThrow(EnvConfigError);
   });
 

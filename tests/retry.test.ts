@@ -52,8 +52,18 @@ describe("withRetry", () => {
       requestedRange: "100-2000",
     })).rejects.toBe(rangeError);
 
-    expect(classifyRpcError(rangeError)).toBe("range_limit");
+    expect(classifyRpcError(rangeError)).toBe("max_block_range");
     expect(fn).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    [{ code: -32005, message: "response size limit exceeded" }, "response_size_limit"],
+    [{ code: -32005, message: "query returned more than 10000 logs" }, "too_many_logs"],
+    [{ status: 429, message: "Too Many Requests" }, "rate_limit"],
+    [{ code: "ETIMEDOUT", message: "request timed out" }, "timeout"],
+    [{ code: -32603, message: "Internal JSON-RPC error" }, "provider_internal"],
+  ] as const)("classifies provider error as %s", (error, category) => {
+    expect(classifyRpcError(error)).toBe(category);
   });
 
   it("retries rate-limited requests using the configured backoff", async () => {
@@ -65,6 +75,21 @@ describe("withRetry", () => {
       .resolves.toBe("ok");
     expect(fn).toHaveBeenCalledTimes(2);
     expect(classifyRpcError({ code: 429, message: "rate limit exceeded" })).toBe("rate_limit");
+  });
+
+  it("honors Retry-After for rate-limited requests", async () => {
+    vi.useFakeTimers();
+    const fn = vi.fn()
+      .mockRejectedValueOnce({ status: 429, message: "rate limited", response: { headers: { "retry-after": "0.01" } } })
+      .mockResolvedValue("ok");
+    const result = withRetry(fn, { maxRetries: 1, baseDelayMs: 1, label: "archive.getLogs" });
+
+    await vi.advanceTimersByTimeAsync(9);
+    expect(fn).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(result).resolves.toBe("ok");
+    expect(fn).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
   });
 
   it("caps exponential backoff", async () => {
