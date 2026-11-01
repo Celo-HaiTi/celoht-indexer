@@ -7,7 +7,8 @@ Copy `.env.example` to `.env` for local development. Production values must come
 | `SUPABASE_URL` | yes | Supabase project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | yes | Server-only writer credential; never log it |
 | `CELO_NETWORK` | yes | Must be `celoSepolia` in this release |
-| `CELO_RPC_URL` | yes | RPC endpoint and deployment manifest are verified against chain ID `11142220` |
+| `CELO_RPC_URL` | yes | Normal/live RPC; verified against chain ID `11142220`; used for head/confirmation polling and contract checks |
+| `CELO_SEPOLIA_ARCHIVE_RPC_URL` | no | Historical RPC for logs, block verification, reorg checks, and backfill; defaults to `CELO_RPC_URL` for compatibility, but startup requires it to serve block `35343240` on chain `11142220` |
 | `abis/USDm.json` | yes | Canonical deployed USDm ABI artifact; startup fails if missing or invalid |
 
 USDm is indexed only when `abis/USDm.json` is present and contains the verified
@@ -24,3 +25,8 @@ and independently checked against the manifest address `0xdE9e4C3ce781b4bA68120d
 | `PORT` | no | Health server port, default `8080` |
 
 Mainnet is not an accepted network value. Adding it requires an authoritative smart-contract deployment manifest, matching ABIs, chain/RPC verification, and a reviewed code/configuration change.
+
+Backfill uses bounded `eth_getLogs` ranges based on `BACKFILL_BATCH_SIZE` and
+splits provider-rejected range sizes into adjacent ranges. Historical endpoints
+must provide archive access from the deployment blocks; retention failures are
+reported as permanent endpoint capability errors and are not retried.

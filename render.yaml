@@ -32,3 +32,5 @@ services:
         sync: false
       - key: CELO_RPC_URL
         sync: false
+      - key: CELO_SEPOLIA_ARCHIVE_RPC_URL
+        sync: false

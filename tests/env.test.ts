@@ -43,6 +43,17 @@ describe("getEnv (fail closed)", () => {
     expect(env.CONFIRMATIONS).toBe(5);
     expect(env.BACKFILL_BATCH_SIZE).toBe(2000);
     expect(env.USDM_START_BLOCK).toBe(0);
+    expect(env.CELO_SEPOLIA_ARCHIVE_RPC_URL).toBeUndefined();
+  });
+
+  it("accepts a configured archive-capable Celo Sepolia endpoint", () => {
+    Object.assign(process.env, VALID_ENV, { CELO_SEPOLIA_ARCHIVE_RPC_URL: "https://archive.example.com" });
+    expect(getEnv().CELO_SEPOLIA_ARCHIVE_RPC_URL).toBe("https://archive.example.com");
+  });
+
+  it("rejects a malformed archive endpoint URL", () => {
+    Object.assign(process.env, VALID_ENV, { CELO_SEPOLIA_ARCHIVE_RPC_URL: "not-a-url" });
+    expect(() => getEnv()).toThrow(EnvConfigError);
   });
 
   it("rejects a malformed explicit USDm lower bound", () => {

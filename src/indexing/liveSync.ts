@@ -5,6 +5,7 @@ import { detectAndHandleReorg } from "@/indexing/reorg";
 import { getCheckpoint } from "@/db/checkpoints";
 import { logger } from "@/util/logger";
 import { serializeError } from "@/util/errorSerializer";
+import { RpcProviderCapabilityError } from "@/chain/retry";
 import type { AbiItem } from "@/config/abiLoader";
 import type { IndexTargetName } from "@/config/network";
 
@@ -18,6 +19,7 @@ export interface SyncTarget {
 
 export interface LiveSyncParams {
   client: PublicClient;
+  historicalClient: PublicClient;
   chainId: number;
   confirmations: number;
   batchSize: number;
@@ -31,7 +33,7 @@ export interface LiveSyncParams {
  * exclusively on WebSocket subscriptions — this is a poll/reconcile model
  * suitable for restart-safe, at-least-once processing. */
 export async function runSyncPass(params: LiveSyncParams): Promise<void> {
-  const confirmedBlock = await getConfirmedBlockNumber(params.client, params.confirmations);
+  const confirmedBlock = await getConfirmedBlockNumber(params.client, params.confirmations, params.maxRetries);
 
   for (const target of params.targets) {
     const checkpoint = params.dryRun
@@ -46,13 +48,14 @@ export async function runSyncPass(params: LiveSyncParams): Promise<void> {
       : await getCheckpoint({
           chainId: params.chainId,
           contractAddress: target.contractAddress,
-          client: params.client,
+          client: params.historicalClient,
           initialBlock: target.startBlock,
+          maxRetries: params.maxRetries,
         });
 
     if (!params.dryRun && checkpoint.lastProcessedBlock !== null) {
       const { reorgDetected, safeBlock } = await detectAndHandleReorg({
-        client: params.client,
+        client: params.historicalClient,
         chainId: params.chainId,
         contractAddress: target.contractAddress,
         lastProcessedBlock: checkpoint.lastProcessedBlock,
@@ -60,6 +63,7 @@ export async function runSyncPass(params: LiveSyncParams): Promise<void> {
         lastProcessedParentHash: checkpoint.lastProcessedParentHash,
         latestConfirmedBlock: checkpoint.latestConfirmedBlock,
         deploymentBlock: target.deploymentBlock,
+        maxRetries: params.maxRetries,
       });
       if (reorgDetected) {
         logger.warn("checkpoint_rolled_back", { contract: target.contract, safeBlock: safeBlock.toString() });
@@ -71,8 +75,9 @@ export async function runSyncPass(params: LiveSyncParams): Promise<void> {
       : await getCheckpoint({
           chainId: params.chainId,
           contractAddress: target.contractAddress,
-          client: params.client,
+          client: params.historicalClient,
           initialBlock: target.startBlock,
+          maxRetries: params.maxRetries,
         });
     const fromBlock = freshCheckpoint.nextBlock;
 
@@ -82,7 +87,7 @@ export async function runSyncPass(params: LiveSyncParams): Promise<void> {
     }
 
     await runBackfill({
-      client: params.client,
+      client: params.historicalClient,
       chainId: params.chainId,
       contract: target.contract,
       contractAddress: target.contractAddress,
@@ -108,6 +113,10 @@ export function startLiveSyncLoop(params: LiveSyncParams & { pollIntervalMs: num
     while (!stopped) {
       currentRun = runSyncPass(params).catch((err) => {
         logger.error("sync_pass_failed", { error: serializeError(err) });
+        if (hasPermanentProviderCapabilityError(err)) {
+          stopped = true;
+          logger.error("sync_loop_stopped_permanent_rpc_capability_error", { error: serializeError(err) });
+        }
       });
       await currentRun;
       if (stopped) break;
@@ -123,4 +132,11 @@ export function startLiveSyncLoop(params: LiveSyncParams & { pollIntervalMs: num
       await currentRun;
     },
   };
+}
+
+function hasPermanentProviderCapabilityError(error: unknown, seen = new WeakSet<object>()): boolean {
+  if (error instanceof RpcProviderCapabilityError) return true;
+  if (!error || typeof error !== "object" || seen.has(error)) return false;
+  seen.add(error);
+  return hasPermanentProviderCapabilityError((error as { cause?: unknown }).cause, seen);
 }

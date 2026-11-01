@@ -2,7 +2,7 @@ import { getEnv } from "@/config/env";
 import { loadDeploymentMetadata, CONTRACT_NAMES, CONTRACT_DISPLAY_NAMES, contractAddress, deploymentBlock } from "@/config/network";
 import { loadAbi, AbiLoadError } from "@/config/abiLoader";
 import { loadUsdmAbi } from "@/config/token";
-import { createVerifiedClient } from "@/chain/provider";
+import { createVerifiedClients } from "@/chain/provider";
 import { ensureCheckpoint } from "@/db/checkpoints";
 import { startLiveSyncLoop, type SyncTarget } from "@/indexing/liveSync";
 import { startHealthServer } from "@/health/server";
@@ -21,7 +21,7 @@ async function main(): Promise<void> {
   logger.info("indexer_starting", { network: meta.network, chainId: meta.chainId });
 
   startupStage = "rpc_verification";
-  const client = await createVerifiedClient(meta);
+  const rpcClients = await createVerifiedClients(meta);
 
   const targets: SyncTarget[] = [];
   for (const contract of CONTRACT_NAMES) {
@@ -100,7 +100,7 @@ async function main(): Promise<void> {
 
   startupStage = "health_server_start";
   const healthServer = startHealthServer({
-    client,
+    client: rpcClients.liveClient,
     meta,
     port: Number(process.env.PORT ?? 8080),
     expectedCheckpointCount: targets.length,
@@ -108,7 +108,8 @@ async function main(): Promise<void> {
 
   startupStage = "live_sync_start";
   const sync = startLiveSyncLoop({
-    client,
+    client: rpcClients.liveClient,
+    historicalClient: rpcClients.historicalClient,
     chainId: meta.chainId,
     confirmations: env.CONFIRMATIONS,
     batchSize: env.BACKFILL_BATCH_SIZE,

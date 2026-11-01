@@ -1,5 +1,5 @@
 import type { PublicClient } from "viem";
-import { withRetry } from "@/chain/retry";
+import { classifyRpcError, RpcProviderCapabilityError, withRetry } from "@/chain/retry";
 import { decodeLog, MalformedEventError } from "@/indexing/eventDecoder";
 import { persistEvent } from "@/indexing/persist";
 import { updateCheckpointProgress, recordCheckpointError } from "@/db/checkpoints";
@@ -43,22 +43,39 @@ export async function runBackfill(params: BackfillParams): Promise<void> {
     const chunkEnd = cursor + BigInt(batchSize) - 1n > toBlock ? toBlock : cursor + BigInt(batchSize) - 1n;
 
     try {
-      const logs = await withRetry(
-        () =>
-          client.getLogs({
-            address: contractAddress,
-            fromBlock: cursor,
-            toBlock: chunkEnd,
-          }),
-        { maxRetries, label: `getLogs(${contract}, ${cursor}-${chunkEnd})` }
-      );
+      const logs = await fetchLogsInBoundedRanges({
+        client,
+        contract,
+        contractAddress,
+        fromBlock: cursor,
+        toBlock: chunkEnd,
+        maxRetries,
+      });
+      const eventBlockCache = new Map<bigint, Promise<Awaited<ReturnType<PublicClient["getBlock"]>>>>();
 
       for (const log of logs) {
         try {
-          const block = await withRetry(
-            () => client.getBlock({ blockNumber: log.blockNumber as bigint }),
-            { maxRetries, label: `getBlock(${log.blockNumber})` }
-          );
+          if (
+            log.blockNumber === null || typeof log.blockHash !== "string" ||
+            log.blockNumber < cursor || log.blockNumber > chunkEnd
+          ) {
+            throw new MalformedEventError("RPC returned an event outside the requested range or without a block number/hash.");
+          }
+          let blockPromise = eventBlockCache.get(log.blockNumber);
+          if (!blockPromise) {
+            blockPromise = withRetry(
+              () => client.getBlock({ blockNumber: log.blockNumber as bigint }),
+              {
+                maxRetries,
+                label: `getBlock(${log.blockNumber})`,
+                endpointRole: "archive",
+                requestedBlock: log.blockNumber.toString(),
+              }
+            );
+            eventBlockCache.set(log.blockNumber, blockPromise);
+          }
+          const block = await blockPromise;
+          verifyBlockHeader(block, log.blockNumber, log.blockHash, contract);
           const decoded = decodeLog({
             log,
             abi,
@@ -87,10 +104,21 @@ export async function runBackfill(params: BackfillParams): Promise<void> {
       }
 
       if (!params.dryRun) {
-        const endBlock = await withRetry(
-          () => client.getBlock({ blockNumber: chunkEnd }),
-          { maxRetries, label: `getBlock(${chunkEnd})` }
-        );
+        let endBlockPromise = eventBlockCache.get(chunkEnd);
+        if (!endBlockPromise) {
+          endBlockPromise = withRetry(
+            () => client.getBlock({ blockNumber: chunkEnd }),
+            {
+              maxRetries,
+              label: `getBlock(${chunkEnd})`,
+              endpointRole: "archive",
+              requestedBlock: chunkEnd.toString(),
+            }
+          );
+          eventBlockCache.set(chunkEnd, endBlockPromise);
+        }
+        const endBlock = await endBlockPromise;
+        verifyBlockHeader(endBlock, chunkEnd, null, contract);
         await updateCheckpointProgress({
           chainId,
           contractAddress,
@@ -117,4 +145,82 @@ export async function runBackfill(params: BackfillParams): Promise<void> {
   }
 
   logger.info("backfill_complete", { contract, toBlock: toBlock.toString() });
+}
+
+async function fetchLogsInBoundedRanges(params: {
+  client: PublicClient;
+  contract: IndexTargetName;
+  contractAddress: `0x${string}`;
+  fromBlock: bigint;
+  toBlock: bigint;
+  maxRetries: number;
+}): Promise<Awaited<ReturnType<PublicClient["getLogs"]>>> {
+  try {
+    return await withRetry(
+      () => params.client.getLogs({
+        address: params.contractAddress,
+        fromBlock: params.fromBlock,
+        toBlock: params.toBlock,
+      }),
+      {
+        maxRetries: params.maxRetries,
+        label: `getLogs(${params.contract}, ${params.fromBlock}-${params.toBlock})`,
+        endpointRole: "archive",
+        requestedRange: `${params.fromBlock}-${params.toBlock}`,
+      }
+    );
+  } catch (error) {
+    if (classifyRpcError(error) !== "range_limit") throw error;
+    if (params.fromBlock >= params.toBlock) {
+      logger.error("rpc_log_range_unserviceable", {
+        endpointRole: "archive",
+        contract: params.contract,
+        requestedRange: `${params.fromBlock}-${params.toBlock}`,
+        errorCategory: "range_limit",
+        error: serializeError(error),
+      });
+      throw new RpcProviderCapabilityError(
+        `Archive RPC cannot serve getLogs for block ${params.fromBlock} even as a single-block range`,
+        "range_limit",
+        { cause: error }
+      );
+    }
+
+    const midpoint = params.fromBlock + (params.toBlock - params.fromBlock) / 2n;
+    logger.warn("rpc_log_range_split", {
+      endpointRole: "archive",
+      contract: params.contract,
+      requestedRange: `${params.fromBlock}-${params.toBlock}`,
+      splitAt: midpoint.toString(),
+    });
+    const firstHalf = await fetchLogsInBoundedRanges({ ...params, toBlock: midpoint });
+    const secondHalf = await fetchLogsInBoundedRanges({ ...params, fromBlock: midpoint + 1n });
+    return [...firstHalf, ...secondHalf];
+  }
+}
+
+function verifyBlockHeader(
+  block: Awaited<ReturnType<PublicClient["getBlock"]>>,
+  expectedNumber: bigint,
+  expectedHash: string | null,
+  contract: IndexTargetName
+): asserts block is NonNullable<typeof block> {
+  const hashPattern = /^0x[0-9a-f]{64}$/i;
+  if (
+    !block || block.number !== expectedNumber || typeof block.hash !== "string" || !hashPattern.test(block.hash) ||
+    typeof block.parentHash !== "string" || !hashPattern.test(block.parentHash) ||
+    (expectedHash !== null && (!hashPattern.test(expectedHash) || block.hash.toLowerCase() !== expectedHash.toLowerCase()))
+  ) {
+    const message = `Archive RPC returned an invalid or mismatched block header at ${expectedNumber} for ${contract}.`;
+    logger.error("archive_block_verification_failed", {
+      endpointRole: "archive",
+      requestedBlock: expectedNumber.toString(),
+      contract,
+      errorCategory: expectedHash === null ? "invalid_block_header" : "event_block_hash_mismatch",
+      returnedBlock: block?.number?.toString() ?? null,
+      returnedHash: block?.hash ?? null,
+      expectedHash,
+    });
+    throw new Error(message);
+  }
 }

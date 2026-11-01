@@ -4,14 +4,19 @@ const { operations, state } = vi.hoisted(() => ({
   operations: {
     backfills: [] as Array<Record<string, unknown>>,
     reorgs: [] as Array<Record<string, unknown>>,
+    liveClients: [] as unknown[],
   },
   state: {
     checkpoint: null as null | Record<string, unknown>,
+    backfillError: null as Error | null,
   },
 }));
 
 vi.mock("@/chain/provider", () => ({
-  getConfirmedBlockNumber: vi.fn(async () => 35343250n),
+  getConfirmedBlockNumber: vi.fn(async (client: unknown) => {
+    operations.liveClients.push(client);
+    return 35343250n;
+  }),
 }));
 
 vi.mock("@/db/checkpoints", () => ({
@@ -28,6 +33,7 @@ vi.mock("@/indexing/reorg", () => ({
 vi.mock("@/indexing/backfill", () => ({
   runBackfill: vi.fn(async (params: Record<string, unknown>) => {
     operations.backfills.push(params);
+    if (state.backfillError) throw state.backfillError;
     state.checkpoint = {
       chainId: 11142220,
       contractAddress: "test-contract",
@@ -41,7 +47,8 @@ vi.mock("@/indexing/backfill", () => ({
   }),
 }));
 
-import { runSyncPass } from "@/indexing/liveSync";
+import { RpcProviderCapabilityError } from "@/chain/retry";
+import { runSyncPass, startLiveSyncLoop } from "@/indexing/liveSync";
 
 const target = {
   contract: "governance" as const,
@@ -55,6 +62,8 @@ describe("live sync checkpoint recovery", () => {
   beforeEach(() => {
     operations.backfills.splice(0);
     operations.reorgs.splice(0);
+    operations.liveClients.splice(0);
+    state.backfillError = null;
     state.checkpoint = {
       chainId: 11142220,
       contractAddress: target.contractAddress,
@@ -68,9 +77,11 @@ describe("live sync checkpoint recovery", () => {
   });
 
   it("backfills from the official deployment cursor, then restarts from persisted progress", async () => {
-    const client = {} as never;
+    const liveClient = { role: "live" } as never;
+    const historicalClient = { role: "archive" } as never;
     const params = {
-      client,
+      client: liveClient,
+      historicalClient,
       chainId: 11142220,
       confirmations: 5,
       batchSize: 2000,
@@ -84,11 +95,35 @@ describe("live sync checkpoint recovery", () => {
       fromBlock: 35343240n,
       toBlock: 35343250n,
     });
+    expect(operations.backfills[0]?.client).toBe(historicalClient);
+    expect(operations.liveClients[0]).toBe(liveClient);
     expect(operations.reorgs).toHaveLength(0);
 
     await expect(runSyncPass(params)).resolves.toBeUndefined();
     expect(operations.reorgs).toHaveLength(1);
     expect(operations.reorgs[0]).toMatchObject({ lastProcessedBlock: 35343250n });
+    expect(operations.reorgs[0]?.client).toBe(historicalClient);
+    expect(operations.backfills).toHaveLength(1);
+  });
+
+  it("stops polling after a permanent archive capability failure", async () => {
+    state.backfillError = new RpcProviderCapabilityError(
+      "archive retention unavailable",
+      "historical_retention_limit"
+    );
+    const sync = startLiveSyncLoop({
+      client: { role: "live" } as never,
+      historicalClient: { role: "archive" } as never,
+      chainId: 11142220,
+      confirmations: 5,
+      batchSize: 2000,
+      maxRetries: 5,
+      pollIntervalMs: 1000,
+      targets: [target],
+    });
+
+    await sync.stop();
+
     expect(operations.backfills).toHaveLength(1);
   });
 });

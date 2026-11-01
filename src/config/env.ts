@@ -5,6 +5,7 @@ const EnvSchema = z.object({
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
   CELO_NETWORK: z.string().min(1),
   CELO_RPC_URL: z.string().url(),
+  CELO_SEPOLIA_ARCHIVE_RPC_URL: z.string().url().optional(),
   CONFIRMATIONS: z.coerce.number().int().min(1).default(5),
   BACKFILL_BATCH_SIZE: z.coerce.number().int().min(1).max(10_000).default(2000),
   POLL_INTERVAL_MS: z.coerce.number().int().min(1000).default(15_000),

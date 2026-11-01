@@ -3,6 +3,7 @@ import { getServiceRoleClient } from "@/db/supabaseClient";
 import { rewindCheckpointToDeployment, rollbackCheckpoint, updateCheckpointProgress } from "@/db/checkpoints";
 import { logger } from "@/util/logger";
 import { serializeError } from "@/util/errorSerializer";
+import { classifyRpcError, withRetry } from "@/chain/retry";
 
 const ELIGIBLE_STATUSES = ["canonical", "confirmed"] as const;
 
@@ -49,6 +50,7 @@ export async function detectAndHandleReorg(params: {
   lastProcessedParentHash?: string | null;
   latestConfirmedBlock?: bigint | null;
   deploymentBlock?: number;
+  maxRetries?: number;
   maxLookback?: number;
 }): Promise<{ reorgDetected: boolean; safeBlock: bigint }> {
   const maxLookback = params.maxLookback ?? 50;
@@ -156,12 +158,23 @@ export async function detectAndHandleReorg(params: {
 
     let chainBlock;
     try {
-      chainBlock = await params.client.getBlock({ blockNumber });
+      chainBlock = await withRetry(
+        () => params.client.getBlock({ blockNumber }),
+        {
+          maxRetries: params.maxRetries ?? 0,
+          label: `archive.getBlock(${blockNumber})`,
+          endpointRole: "archive",
+          requestedBlock: blockNumber.toString(),
+        }
+      );
     } catch (error) {
       logger.error("canonical_anchor_rpc_read_failed", {
         contract: params.contractAddress,
         chainId: params.chainId,
+        endpointRole: "archive",
         blockNumber: blockNumber.toString(),
+        requestedBlock: blockNumber.toString(),
+        errorCategory: classifyRpcError(error),
         status,
         storedHash,
         rpcHash: null,
@@ -288,11 +301,26 @@ async function verifyCheckpointBlock(params: {
   lastProcessedBlock: bigint;
   lastProcessedBlockHash?: string | null;
   lastProcessedParentHash?: string | null;
+  maxRetries?: number;
 }): Promise<{ hash: string; parentHash: string | null; timestamp: bigint } | null> {
   let block;
   try {
-    block = await params.client.getBlock({ blockNumber: params.lastProcessedBlock });
+    block = await withRetry(
+      () => params.client.getBlock({ blockNumber: params.lastProcessedBlock }),
+      {
+        maxRetries: params.maxRetries ?? 0,
+        label: `archive.getBlock(${params.lastProcessedBlock})`,
+        endpointRole: "archive",
+        requestedBlock: params.lastProcessedBlock.toString(),
+      }
+    );
   } catch (error) {
+    logger.error("checkpoint_rpc_verification_failed", {
+      endpointRole: "archive",
+      requestedBlock: params.lastProcessedBlock.toString(),
+      errorCategory: classifyRpcError(error),
+      error: serializeError(error),
+    });
     throw new CanonicalAnchorRpcError(
       `RPC failed while verifying checkpoint ${params.lastProcessedBlock} for ${params.contractAddress}: ${String(error)}`
     );
@@ -336,8 +364,22 @@ async function verifyCheckpointBlock(params: {
   if (params.lastProcessedBlock > 0n) {
     let parent;
     try {
-      parent = await params.client.getBlock({ blockNumber: params.lastProcessedBlock - 1n });
+      parent = await withRetry(
+        () => params.client.getBlock({ blockNumber: params.lastProcessedBlock - 1n }),
+        {
+          maxRetries: params.maxRetries ?? 0,
+          label: `archive.getBlock(${params.lastProcessedBlock - 1n})`,
+          endpointRole: "archive",
+          requestedBlock: (params.lastProcessedBlock - 1n).toString(),
+        }
+      );
     } catch (error) {
+      logger.error("checkpoint_parent_rpc_verification_failed", {
+        endpointRole: "archive",
+        requestedBlock: (params.lastProcessedBlock - 1n).toString(),
+        errorCategory: classifyRpcError(error),
+        error: serializeError(error),
+      });
       throw new CanonicalAnchorRpcError(
         `RPC failed while verifying the parent of checkpoint ${params.lastProcessedBlock}: ${String(error)}`
       );

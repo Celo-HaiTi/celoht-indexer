@@ -3,6 +3,9 @@ import type { IndexTargetName } from "@/config/network";
 import { ensureCanonicalContract, rollbackCanonical } from "@/db/canonical";
 import { throwSupabaseError } from "@/db/supabaseDiagnostics";
 import type { PublicClient } from "viem";
+import { classifyRpcError, withRetry } from "@/chain/retry";
+import { logger } from "@/util/logger";
+import { serializeError } from "@/util/errorSerializer";
 
 export interface CheckpointRow {
   chainId: number;
@@ -16,15 +19,15 @@ export interface CheckpointRow {
 }
 
 export class CheckpointConsistencyError extends Error {
-  constructor(message: string) {
-    super(message);
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
     this.name = "CheckpointConsistencyError";
   }
 }
 
 export class CheckpointRecoveryRequiredError extends CheckpointConsistencyError {
-  constructor(message: string) {
-    super(message);
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
     this.name = "CheckpointRecoveryRequiredError";
   }
 }
@@ -75,6 +78,7 @@ export async function getCheckpoint(params: {
   contractAddress: string;
   client: PublicClient;
   initialBlock: number;
+  maxRetries?: number;
 }): Promise<CheckpointRow> {
   if (!Number.isSafeInteger(params.initialBlock) || params.initialBlock < 0) {
     throw new RangeError("initialBlock must be a nonnegative safe integer");
@@ -171,10 +175,25 @@ export async function getCheckpoint(params: {
 
   let rpcBlock;
   try {
-    rpcBlock = await params.client.getBlock({ blockNumber: canonicalProcessedBlock });
+    rpcBlock = await withRetry(
+      () => params.client.getBlock({ blockNumber: canonicalProcessedBlock }),
+      {
+        maxRetries: params.maxRetries ?? 0,
+        label: `archive.getBlock(${canonicalProcessedBlock})`,
+        endpointRole: "archive",
+        requestedBlock: canonicalProcessedBlock.toString(),
+      }
+    );
   } catch (error) {
+    logger.error("checkpoint_rpc_verification_failed", {
+      endpointRole: "archive",
+      requestedBlock: canonicalProcessedBlock.toString(),
+      errorCategory: classifyRpcError(error),
+      error: serializeError(error),
+    });
     throw new CheckpointRecoveryRequiredError(
-      `RPC could not verify checkpoint ${canonicalProcessedBlock} for ${params.contractAddress}: ${String(error)}`
+      `RPC could not verify checkpoint ${canonicalProcessedBlock} for ${params.contractAddress} (${classifyRpcError(error)}).`,
+      { cause: error }
     );
   }
   if (
@@ -186,8 +205,10 @@ export async function getCheckpoint(params: {
     );
   }
   if (
-    (canonical.last_processed_parent_hash && canonical.last_processed_parent_hash.toLowerCase() !== rpcBlock.parentHash.toLowerCase()) ||
-    (anchor.parent_hash && anchor.parent_hash.toLowerCase() !== rpcBlock.parentHash.toLowerCase())
+    (canonical.last_processed_parent_hash !== null &&
+      (!isHash(canonical.last_processed_parent_hash) || canonical.last_processed_parent_hash.toLowerCase() !== rpcBlock.parentHash.toLowerCase())) ||
+    (anchor.parent_hash !== null &&
+      (!isHash(anchor.parent_hash) || anchor.parent_hash.toLowerCase() !== rpcBlock.parentHash.toLowerCase()))
   ) {
     throw new CheckpointRecoveryRequiredError(
       `RPC parent hash does not verify checkpoint ${canonicalProcessedBlock} for ${params.contractAddress}.`
