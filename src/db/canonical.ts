@@ -157,17 +157,9 @@ export async function updateCanonicalProgress(params: {
 
 export async function rollbackCanonical(params: {
   chainId: number;
-  contractAddress: string;
   safeBlock: bigint;
 }): Promise<void> {
   const supabase = getServiceRoleClient();
-  const { data: contract, error: contractError } = await supabase
-    .from("contracts")
-    .select("id")
-    .eq("chain_id", params.chainId)
-    .eq("contract_address", params.contractAddress)
-    .single();
-  if (contractError) throw contractError;
 
   const { error: eventError } = await supabase
     .from("blockchain_events")
@@ -185,9 +177,14 @@ export async function rollbackCanonical(params: {
 
   const { error: stateError } = await supabase
     .from("indexer_sync_state")
-    .update({ next_block: (params.safeBlock + 1n).toString(), status: "syncing" })
+    .update({
+      next_block: (params.safeBlock + 1n).toString(),
+      latest_confirmed_block: null,
+      status: "syncing",
+      last_error: null,
+    })
     .eq("chain_id", params.chainId)
-    .eq("contract_id", contract.id);
+    .gt("next_block", (params.safeBlock + 1n).toString());
   if (stateError) throw stateError;
 }
 

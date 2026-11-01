@@ -110,6 +110,7 @@ export class NetworkConfigError extends Error {
  * added and this list updated in a reviewed change — never silently.
  */
 export const ALLOWED_NETWORKS = ["celoSepolia"] as const;
+export const CELO_SEPOLIA_CHAIN_ID = 11142220;
 export const MAINNET_CHAIN_ID = 42220;
 
 export function loadDeploymentMetadata(network: string): DeploymentMetadata {
@@ -147,6 +148,13 @@ export function loadDeploymentMetadata(network: string): DeploymentMetadata {
     throw new NetworkConfigError(
       `Deployment metadata declares chainId ${MAINNET_CHAIN_ID} (Mainnet). ` +
         `Mainnet operations are disabled in this implementation until explicitly enabled by project decision.`
+    );
+  }
+
+  if (parsed.data.network !== network || parsed.data.chainId !== CELO_SEPOLIA_CHAIN_ID) {
+    throw new NetworkConfigError(
+      `Deployment metadata must identify ${network} on Celo Sepolia chain ${CELO_SEPOLIA_CHAIN_ID}; ` +
+        `found ${parsed.data.network} on chain ${parsed.data.chainId}.`
     );
   }
 

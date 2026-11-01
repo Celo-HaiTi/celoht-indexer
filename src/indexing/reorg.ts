@@ -56,7 +56,6 @@ export async function detectAndHandleReorg(params: {
         });
         await rollbackCheckpoint({
           chainId: params.chainId,
-          contractAddress: params.contractAddress,
           safeBlock: storedBlockNumber,
         });
         return { reorgDetected: true, safeBlock: storedBlockNumber };

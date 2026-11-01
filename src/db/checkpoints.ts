@@ -112,7 +112,6 @@ export async function recordCheckpointError(params: {
  */
 export async function rollbackCheckpoint(params: {
   chainId: number;
-  contractAddress: string;
   safeBlock: bigint;
 }): Promise<void> {
   const supabase = getServiceRoleClient();
@@ -133,8 +132,13 @@ export async function rollbackCheckpoint(params: {
 
   const { error: updateError } = await supabase
     .from("indexer_state")
-    .update({ last_processed_block: params.safeBlock.toString(), sync_status: "syncing" })
+    .update({
+      last_processed_block: params.safeBlock.toString(),
+      latest_confirmed_block: null,
+      sync_status: "syncing",
+      last_error: null,
+    })
     .eq("chain_id", params.chainId)
-    .eq("contract_address", params.contractAddress);
+    .gt("last_processed_block", params.safeBlock.toString());
   if (updateError) throw updateError;
 }

@@ -1,8 +1,15 @@
 import { describe, it, expect } from "vitest";
 import { loadAbi, eventNamesFromAbi } from "@/config/abiLoader";
 import { loadUsdmAbi, VERIFIED_USDM_ABI_SHA256 } from "@/config/token";
+import { CONTRACT_NAMES } from "@/config/network";
 
 describe("loadAbi", () => {
+  it("loads event-bearing official ABIs for every indexed CeloHT contract", () => {
+    for (const contract of CONTRACT_NAMES) {
+      expect(eventNamesFromAbi(loadAbi(contract)).length, contract).toBeGreaterThan(0);
+    }
+  });
+
   it("loads the compiled ABI from the authoritative artifact", () => {
     const abi = loadAbi("agentRegistry");
     expect(eventNamesFromAbi(abi)).toContain("AgentRegistered");

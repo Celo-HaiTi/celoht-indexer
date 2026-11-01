@@ -7,7 +7,7 @@ Copy `.env.example` to `.env` for local development. Production values must come
 | `SUPABASE_URL` | yes | Supabase project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | yes | Server-only writer credential; never log it |
 | `CELO_NETWORK` | yes | Must be `celoSepolia` in this release |
-| `CELO_RPC_URL` | yes | RPC endpoint verified against chain ID `11142220` |
+| `CELO_RPC_URL` | yes | RPC endpoint and deployment manifest are verified against chain ID `11142220` |
 | `abis/USDm.json` | yes | Canonical deployed USDm ABI artifact; startup fails if missing or invalid |
 
 USDm is indexed only when `abis/USDm.json` is present and contains the verified
