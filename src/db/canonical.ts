@@ -1,6 +1,7 @@
 import type { DecodedEvent } from "@/indexing/eventDecoder";
 import type { IndexTargetName } from "@/config/network";
 import { getServiceRoleClient } from "@/db/supabaseClient";
+import { throwSupabaseError } from "@/db/supabaseDiagnostics";
 
 const METADATA_REF = "Celo-HaiTi/celoht-smart-contracts/deployments/celoSepolia.json";
 
@@ -103,7 +104,7 @@ export async function ensureCanonicalContract(params: {
     { chain_id: params.chainId, network: params.network, native_symbol: "CELO", is_enabled: params.network === "celoSepolia" },
     { onConflict: "chain_id" }
   );
-  if (networkError) throw networkError;
+  if (networkError) throwSupabaseError("blockchain_networks.upsert", networkError);
 
   const { data: contract, error: contractError } = await supabase.from("contracts").upsert(
     {
@@ -117,7 +118,7 @@ export async function ensureCanonicalContract(params: {
     },
     { onConflict: "chain_id,contract_address" }
   ).select("id").single();
-  if (contractError) throw contractError;
+  if (contractError) throwSupabaseError("contracts.upsert", contractError);
 
   const { error: stateError } = await supabase.from("indexer_sync_state").upsert(
     {
@@ -128,7 +129,7 @@ export async function ensureCanonicalContract(params: {
     },
     { onConflict: "chain_id,contract_id", ignoreDuplicates: true }
   );
-  if (stateError) throw stateError;
+  if (stateError) throwSupabaseError("indexer_sync_state.upsert", stateError);
 }
 
 export async function updateCanonicalProgress(params: {

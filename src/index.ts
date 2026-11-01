@@ -9,6 +9,7 @@ import { startHealthServer } from "@/health/server";
 import { getServiceRoleClient } from "@/db/supabaseClient";
 import { logger, logStartupFailure } from "@/util/logger";
 import { serializeError } from "@/util/errorSerializer";
+import { throwSupabaseError } from "@/db/supabaseDiagnostics";
 
 let startupStage = "environment_validation";
 
@@ -80,7 +81,7 @@ async function main(): Promise<void> {
       status: "healthy",
       details: { network: meta.network, chainId: meta.chainId },
     });
-    if (error) throw error;
+    if (error) throwSupabaseError("system_health.insert", error);
   }
 
   startupStage = "health_server_start";

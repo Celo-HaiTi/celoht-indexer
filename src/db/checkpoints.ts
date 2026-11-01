@@ -1,6 +1,7 @@
 import { getServiceRoleClient } from "@/db/supabaseClient";
 import type { IndexTargetName } from "@/config/network";
 import { ensureCanonicalContract, rollbackCanonical } from "@/db/canonical";
+import { throwSupabaseError } from "@/db/supabaseDiagnostics";
 
 export interface CheckpointRow {
   chainId: number;
@@ -46,7 +47,7 @@ export async function ensureCheckpoint(params: {
     last_processed_block: Math.max(0, Math.max(params.deploymentBlock, params.startBlock ?? params.deploymentBlock) - 1),
     sync_status: "idle",
   });
-  if (insertError && insertError.code !== "23505") throw insertError;
+  if (insertError && insertError.code !== "23505") throwSupabaseError("indexer_state.insert", insertError);
 }
 
 export async function getCheckpoint(chainId: number, contractAddress: string): Promise<CheckpointRow> {
