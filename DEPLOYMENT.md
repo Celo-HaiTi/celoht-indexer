@@ -24,8 +24,13 @@ retention limit are insufficient for the initial backfill; use an archive or
 historical-capable Celo Sepolia provider without changing the chain or the
 verified deployment metadata.
 
-Point your platform's liveness/readiness probe at `GET /health` or `GET /readyz`. Configure
-automatic restart on crash — `main()` exits with code 1 on any
+For Render, keep `healthCheckPath` set to `/health`. It checks RPC and database
+availability without failing solely because the initial historical backfill is
+still catching up. `/readyz` is stricter and returns 503 until every checkpoint
+reaches the confirmed head; use it for readiness monitoring, not Render's
+deployment health check. Set the three unsynced Render variables
+`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and `CELO_RPC_URL` to real values
+in the Render dashboard. Configure automatic restart on crash — `main()` exits with code 1 on any
 unrecoverable startup error (missing env, invalid network config, RPC/chain
 mismatch), which should be treated as "needs operator attention," not
 silently retried forever without alerting.
