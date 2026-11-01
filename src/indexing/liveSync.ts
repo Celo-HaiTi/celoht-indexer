@@ -13,6 +13,7 @@ export interface SyncTarget {
   contractAddress: `0x${string}`;
   abi: AbiItem[];
   deploymentBlock: number;
+  startBlock: number;
 }
 
 export interface LiveSyncParams {
@@ -35,16 +36,21 @@ export async function runSyncPass(params: LiveSyncParams): Promise<void> {
   for (const target of params.targets) {
     const checkpoint = params.dryRun
       ? {
-          lastProcessedBlock: BigInt(Math.max(0, target.deploymentBlock - 1)),
-          nextBlock: BigInt(target.deploymentBlock),
+          lastProcessedBlock: null,
+          nextBlock: BigInt(target.startBlock),
           lastProcessedBlockHash: null,
           lastProcessedParentHash: null,
           latestConfirmedBlock: null,
           syncStatus: "idle" as const,
         }
-      : await getCheckpoint(params.chainId, target.contractAddress);
+      : await getCheckpoint({
+          chainId: params.chainId,
+          contractAddress: target.contractAddress,
+          client: params.client,
+          initialBlock: target.startBlock,
+        });
 
-    if (!params.dryRun && (checkpoint.nextBlock > 0n || checkpoint.lastProcessedBlockHash !== null)) {
+    if (!params.dryRun && checkpoint.lastProcessedBlock !== null) {
       const { reorgDetected, safeBlock } = await detectAndHandleReorg({
         client: params.client,
         chainId: params.chainId,
@@ -62,7 +68,12 @@ export async function runSyncPass(params: LiveSyncParams): Promise<void> {
 
     const freshCheckpoint = params.dryRun
       ? checkpoint
-      : await getCheckpoint(params.chainId, target.contractAddress);
+      : await getCheckpoint({
+          chainId: params.chainId,
+          contractAddress: target.contractAddress,
+          client: params.client,
+          initialBlock: target.startBlock,
+        });
     const fromBlock = freshCheckpoint.nextBlock;
 
     if (fromBlock > confirmedBlock) {

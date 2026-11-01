@@ -76,6 +76,29 @@ describe("rollbackCheckpoint", () => {
     expect(operations).toEqual([]);
   });
 
+  it("persists checkpoint progress through the atomic database procedure", async () => {
+    await updateCheckpointProgress({
+      chainId: 11142220,
+      contractAddress: "test-contract",
+      lastProcessedBlock: 100n,
+      latestConfirmedBlock: 105n,
+      blockHash: `0x${"aa".repeat(32)}`,
+      parentHash: `0x${"bb".repeat(32)}`,
+      blockTimestamp: 1n,
+    });
+
+    expect(operations).toContainEqual({
+      table: "rpc",
+      action: "commit_indexer_checkpoint",
+      args: [expect.objectContaining({
+        p_chain_id: 11142220,
+        p_contract_address: "test-contract",
+        p_block_number: "100",
+        p_latest_confirmed_block: "105",
+      })],
+    });
+  });
+
   it("retains and orphans invalidated history while rewinding every affected contract checkpoint", async () => {
     await rollbackCheckpoint({
       chainId: 11142220,

@@ -144,33 +144,6 @@ export async function ensureCanonicalContract(params: {
   if (stateError) throwSupabaseError("indexer_sync_state.upsert", stateError);
 }
 
-export async function updateCanonicalProgress(params: {
-  chainId: number;
-  contractAddress: string;
-  lastProcessedBlock: bigint;
-  latestConfirmedBlock: bigint;
-}): Promise<void> {
-  if (params.lastProcessedBlock < 0n || params.latestConfirmedBlock < 0n) {
-    throw new RangeError("checkpoint block numbers must be nonnegative");
-  }
-  const supabase = getServiceRoleClient();
-  const { data: contract, error: contractError } = await supabase
-    .from("contracts")
-    .select("id")
-    .eq("chain_id", params.chainId)
-    .eq("contract_address", params.contractAddress)
-    .single();
-  if (contractError) throw contractError;
-  const { error } = await supabase.from("indexer_sync_state").update({
-    next_block: (params.lastProcessedBlock + 1n).toString(),
-    latest_confirmed_block: params.latestConfirmedBlock.toString(),
-    status: "idle",
-    last_success_at: new Date().toISOString(),
-    last_error: null,
-  }).eq("chain_id", params.chainId).eq("contract_id", contract.id);
-  if (error) throw error;
-}
-
 export async function rollbackCanonical(params: {
   chainId: number;
   safeBlock: bigint;

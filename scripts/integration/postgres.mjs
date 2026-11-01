@@ -81,6 +81,13 @@ try {
   await pool.query("select public.commit_indexer_checkpoint($1, $2, $3, $4, $5, now(), $3)", [11142220, "0x7D384851FAbB912287206556479Dd30c740CAdA5", 35343250, block, "0x" + "33".repeat(32)]);
   const checkpoint = await pool.query("select last_processed_block from indexer_state where chain_id = $1", [11142220]);
   if (checkpoint.rows[0].last_processed_block !== "35343250") throw new Error("checkpoint did not advance");
+  const atomicCheckpoint = await pool.query(
+    "select legacy.last_processed_block as legacy_block, canonical.last_processed_block as canonical_block, canonical.next_block, canonical.last_processed_block_hash from indexer_state legacy join indexer_sync_state canonical on canonical.chain_id = legacy.chain_id join contracts c on c.id = canonical.contract_id and c.contract_address = legacy.contract_address where legacy.chain_id = $1 and legacy.contract_address = $2",
+    [11142220, "0x7D384851FAbB912287206556479Dd30c740CAdA5"]
+  );
+  if (atomicCheckpoint.rows[0]?.legacy_block !== "35343250" || atomicCheckpoint.rows[0]?.canonical_block !== "35343250" || atomicCheckpoint.rows[0]?.next_block !== "35343251" || atomicCheckpoint.rows[0]?.last_processed_block_hash !== block) {
+    throw new Error("atomic checkpoint procedure did not update both ledgers and the canonical hash");
+  }
 
   const missingLegacyAddress = "0x7D384851FAbB912287206556479Dd30c740CAdA7";
   const missingLegacyContract = await pool.query(

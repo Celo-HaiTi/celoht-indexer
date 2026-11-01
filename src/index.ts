@@ -29,19 +29,27 @@ async function main(): Promise<void> {
     try {
       const abi = loadAbi(contract);
       const address = contractAddress(meta, contract);
+      const contractDeploymentBlock = deploymentBlock(meta, contract);
+      const contractStartBlock = Math.max(contractDeploymentBlock, env.START_BLOCK ?? contractDeploymentBlock);
       if (!env.DRY_RUN) {
         await ensureCheckpoint({
           chainId: meta.chainId,
           contractName: contract,
           displayName: CONTRACT_DISPLAY_NAMES[contract],
           contractAddress: address,
-          deploymentBlock: deploymentBlock(meta, contract),
+          deploymentBlock: contractDeploymentBlock,
           deploymentTxHash: meta.transactionHashes[contract],
           startBlock: env.START_BLOCK,
           network: meta.network,
         });
       }
-      targets.push({ contract, contractAddress: address, abi, deploymentBlock: deploymentBlock(meta, contract) });
+      targets.push({
+        contract,
+        contractAddress: address,
+        abi,
+        deploymentBlock: contractDeploymentBlock,
+        startBlock: contractStartBlock,
+      });
       logger.info("contract_ready", { contract, address });
     } catch (err) {
       logger.error("contract_initialization_failed", { contract, error: serializeError(err) });
@@ -67,7 +75,13 @@ async function main(): Promise<void> {
       network: meta.network,
     });
   }
-  targets.push({ contract: "usdm", contractAddress: meta.usdm as `0x${string}`, abi: usdmAbi, deploymentBlock: 0 });
+  targets.push({
+    contract: "usdm",
+    contractAddress: meta.usdm as `0x${string}`,
+    abi: usdmAbi,
+    deploymentBlock: 0,
+    startBlock: usdmStartBlock,
+  });
   logger.info("token_ready", { token: "USDm", address: meta.usdm, startBlock: usdmStartBlock });
 
   if (targets.length === 0) {

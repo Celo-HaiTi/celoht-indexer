@@ -2,11 +2,12 @@ import { getServiceRoleClient } from "@/db/supabaseClient";
 import type { IndexTargetName } from "@/config/network";
 import { ensureCanonicalContract, rollbackCanonical } from "@/db/canonical";
 import { throwSupabaseError } from "@/db/supabaseDiagnostics";
+import type { PublicClient } from "viem";
 
 export interface CheckpointRow {
   chainId: number;
   contractAddress: string;
-  lastProcessedBlock: bigint;
+  lastProcessedBlock: bigint | null;
   nextBlock: bigint;
   lastProcessedBlockHash: string | null;
   lastProcessedParentHash: string | null;
@@ -18,6 +19,13 @@ export class CheckpointConsistencyError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "CheckpointConsistencyError";
+  }
+}
+
+export class CheckpointRecoveryRequiredError extends CheckpointConsistencyError {
+  constructor(message: string) {
+    super(message);
+    this.name = "CheckpointRecoveryRequiredError";
   }
 }
 
@@ -62,28 +70,36 @@ export async function ensureCheckpoint(params: {
   if (insertError && insertError.code !== "23505") throwSupabaseError("indexer_state.insert", insertError);
 }
 
-export async function getCheckpoint(chainId: number, contractAddress: string): Promise<CheckpointRow> {
+export async function getCheckpoint(params: {
+  chainId: number;
+  contractAddress: string;
+  client: PublicClient;
+  initialBlock: number;
+}): Promise<CheckpointRow> {
+  if (!Number.isSafeInteger(params.initialBlock) || params.initialBlock < 0) {
+    throw new RangeError("initialBlock must be a nonnegative safe integer");
+  }
   const supabase = getServiceRoleClient();
   const { data: contract, error: contractError } = await supabase
     .from("contracts")
     .select("id")
-    .eq("chain_id", chainId)
-    .eq("contract_address", contractAddress)
+    .eq("chain_id", params.chainId)
+    .eq("contract_address", params.contractAddress)
     .single();
   if (contractError) throw contractError;
 
   const { data: legacy, error: legacyError } = await supabase
     .from("indexer_state")
     .select("chain_id, contract_address, last_processed_block, latest_confirmed_block, sync_status")
-    .eq("chain_id", chainId)
-    .eq("contract_address", contractAddress)
+    .eq("chain_id", params.chainId)
+    .eq("contract_address", params.contractAddress)
     .single();
   if (legacyError) throw legacyError;
 
   const { data: canonical, error: canonicalError } = await supabase
     .from("indexer_sync_state")
     .select("next_block, last_processed_block, last_processed_block_hash, last_processed_parent_hash, latest_confirmed_block")
-    .eq("chain_id", chainId)
+    .eq("chain_id", params.chainId)
     .eq("contract_id", contract.id)
     .single();
   if (canonicalError) throw canonicalError;
@@ -93,33 +109,105 @@ export async function getCheckpoint(chainId: number, contractAddress: string): P
   const nextBlock = BigInt(canonical.next_block);
   const latestConfirmedBlock = nullableBigInt(legacy.latest_confirmed_block);
   const canonicalLatestConfirmedBlock = nullableBigInt(canonical.latest_confirmed_block);
-  const uninitializedAtBlockZero =
-    nextBlock === 0n && canonicalProcessedBlock === 0n &&
+  const initialBlock = BigInt(params.initialBlock);
+  const expectedLegacySeed = initialBlock > 0n ? initialBlock - 1n : 0n;
+  const uninitializedAtStart =
+    nextBlock === initialBlock &&
+    (canonicalProcessedBlock === 0n || canonicalProcessedBlock === expectedLegacySeed) &&
+    legacyProcessedBlock === expectedLegacySeed &&
     canonical.last_processed_block_hash === null && canonical.last_processed_parent_hash === null &&
     latestConfirmedBlock === null && canonicalLatestConfirmedBlock === null;
+
+  if (uninitializedAtStart) {
+    return {
+      chainId: legacy.chain_id,
+      contractAddress: legacy.contract_address,
+      lastProcessedBlock: null,
+      nextBlock,
+      lastProcessedBlockHash: null,
+      lastProcessedParentHash: null,
+      latestConfirmedBlock: null,
+      syncStatus: legacy.sync_status,
+    };
+  }
 
   if (
     legacyProcessedBlock !== canonicalProcessedBlock ||
     latestConfirmedBlock !== canonicalLatestConfirmedBlock ||
-    (!uninitializedAtBlockZero && nextBlock !== canonicalProcessedBlock + 1n)
+    nextBlock !== canonicalProcessedBlock + 1n
   ) {
-    throw new CheckpointConsistencyError(
-      `Checkpoint ledgers disagree for chain ${chainId}, contract ${contractAddress}: ` +
+    throw new CheckpointRecoveryRequiredError(
+      `Checkpoint ledgers disagree for chain ${params.chainId}, contract ${params.contractAddress}: ` +
         `indexer_state=${legacy.last_processed_block}/${legacy.latest_confirmed_block}, ` +
         `indexer_sync_state=${canonical.last_processed_block}/${canonical.latest_confirmed_block}/next=${canonical.next_block}.`
+    );
+  }
+
+  const checkpointHash = canonical.last_processed_block_hash;
+  if (typeof checkpointHash !== "string" || !isHash(checkpointHash)) {
+    throw new CheckpointRecoveryRequiredError(
+      `Checkpoint hash is missing or malformed at block ${canonicalProcessedBlock} for ${params.contractAddress}.`
+    );
+  }
+
+  const { data: anchor, error: anchorError } = await supabase
+    .from("indexed_blocks")
+    .select("block_number, block_hash, parent_hash, confirmation_status")
+    .eq("chain_id", params.chainId)
+    .eq("block_number", canonicalProcessedBlock.toString())
+    .eq("block_hash", checkpointHash)
+    .in("confirmation_status", ["canonical", "confirmed"])
+    .maybeSingle();
+  if (anchorError) {
+    throw new CheckpointRecoveryRequiredError(
+      `Could not verify indexed_blocks anchor at ${canonicalProcessedBlock}: ${String(anchorError)}`
+    );
+  }
+  if (!anchor || BigInt(anchor.block_number) !== canonicalProcessedBlock || !isHash(anchor.block_hash)) {
+    throw new CheckpointRecoveryRequiredError(
+      `No eligible indexed_blocks anchor matches checkpoint ${canonicalProcessedBlock} for ${params.contractAddress}.`
+    );
+  }
+
+  let rpcBlock;
+  try {
+    rpcBlock = await params.client.getBlock({ blockNumber: canonicalProcessedBlock });
+  } catch (error) {
+    throw new CheckpointRecoveryRequiredError(
+      `RPC could not verify checkpoint ${canonicalProcessedBlock} for ${params.contractAddress}: ${String(error)}`
+    );
+  }
+  if (
+    !rpcBlock || rpcBlock.number !== canonicalProcessedBlock || typeof rpcBlock.hash !== "string" ||
+    !isHash(rpcBlock.hash) || rpcBlock.hash.toLowerCase() !== checkpointHash.toLowerCase()
+  ) {
+    throw new CheckpointRecoveryRequiredError(
+      `RPC hash does not verify checkpoint ${canonicalProcessedBlock} for ${params.contractAddress}.`
+    );
+  }
+  if (
+    (canonical.last_processed_parent_hash && canonical.last_processed_parent_hash.toLowerCase() !== rpcBlock.parentHash.toLowerCase()) ||
+    (anchor.parent_hash && anchor.parent_hash.toLowerCase() !== rpcBlock.parentHash.toLowerCase())
+  ) {
+    throw new CheckpointRecoveryRequiredError(
+      `RPC parent hash does not verify checkpoint ${canonicalProcessedBlock} for ${params.contractAddress}.`
     );
   }
 
   return {
     chainId: legacy.chain_id,
     contractAddress: legacy.contract_address,
-    lastProcessedBlock: legacyProcessedBlock,
+    lastProcessedBlock: canonicalProcessedBlock,
     nextBlock,
-    lastProcessedBlockHash: canonical.last_processed_block_hash,
+    lastProcessedBlockHash: checkpointHash.toLowerCase(),
     lastProcessedParentHash: canonical.last_processed_parent_hash,
     latestConfirmedBlock: nullableBigInt(legacy.latest_confirmed_block),
     syncStatus: legacy.sync_status,
   };
+}
+
+function isHash(value: string): boolean {
+  return /^0x[0-9a-f]{64}$/i.test(value);
 }
 
 function nullableBigInt(value: string | number | null): bigint | null {
