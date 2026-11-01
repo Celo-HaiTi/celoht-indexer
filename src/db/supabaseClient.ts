@@ -14,8 +14,28 @@ let client: SupabaseClient | null = null;
 export function getServiceRoleClient(): SupabaseClient {
   if (client) return client;
   const env = getEnv();
+  assertServiceRoleCredential(env.SUPABASE_SERVICE_ROLE_KEY);
   client = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
   return client;
+}
+
+function assertServiceRoleCredential(key: string): void {
+  if (key.startsWith("sb_secret_")) return;
+
+  const parts = key.split(".");
+  if (parts.length !== 3 || !parts[1] || !parts[2]) {
+    throw new Error("SUPABASE_SERVICE_ROLE_KEY must be a Supabase service-role credential.");
+  }
+
+  let role: unknown;
+  try {
+    role = (JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8")) as { role?: unknown }).role;
+  } catch {
+    role = undefined;
+  }
+  if (role === "service_role") return;
+
+  throw new Error("SUPABASE_SERVICE_ROLE_KEY must authorize the Supabase service_role.");
 }
