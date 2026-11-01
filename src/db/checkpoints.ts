@@ -105,15 +105,12 @@ export async function recordCheckpointError(params: {
   if (error) throw error;
 }
 
-/**
- * Rolls a checkpoint back to `safeBlock` (used during reorg recovery), and
- * deletes any blockchain_transactions rows for this contract at or above
- * the invalidated block so they can be safely re-indexed from the new
- * canonical chain.
- */
+/** Rolls chain-wide checkpoints back while retaining invalidated observations for reorg audit. */
 export async function rollbackCheckpoint(params: {
   chainId: number;
   safeBlock: bigint;
+  safeBlockHash: string;
+  safeParentHash: string | null;
 }): Promise<void> {
   const supabase = getServiceRoleClient();
 
@@ -123,13 +120,12 @@ export async function rollbackCheckpoint(params: {
     .eq("chain_id", params.chainId)
     .gt("block_number", params.safeBlock.toString());
   if (compatibilityError) throw compatibilityError;
-  const { error: blocksError } = await supabase
-    .from("indexed_blocks")
-    .delete()
-    .eq("chain_id", params.chainId)
-    .gt("block_number", params.safeBlock.toString());
-  if (blocksError) throw blocksError;
-  await rollbackCanonical(params);
+  await rollbackCanonical({
+    chainId: params.chainId,
+    safeBlock: params.safeBlock,
+    safeBlockHash: params.safeBlockHash,
+    safeParentHash: params.safeParentHash,
+  });
 
   const { error: updateError } = await supabase
     .from("indexer_state")

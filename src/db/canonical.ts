@@ -23,8 +23,9 @@ export async function persistCanonicalEvent(event: DecodedEvent, contract: Index
       parent_hash: event.parentHash,
       block_time: event.blockTimestamp === null ? null : new Date(Number(event.blockTimestamp) * 1000).toISOString(),
       confirmed_at: new Date().toISOString(),
+      confirmation_status: "canonical",
     },
-    { onConflict: "chain_id,block_number" }
+    { onConflict: "chain_id,block_number,block_hash" }
   );
   if (blockError) throw blockError;
 
@@ -85,8 +86,9 @@ export async function persistIndexedBlock(params: {
       parent_hash: params.parentHash,
       block_time: new Date(Number(params.blockTimestamp) * 1000).toISOString(),
       confirmed_at: new Date().toISOString(),
+      confirmation_status: "canonical",
     },
-    { onConflict: "chain_id,block_number" }
+    { onConflict: "chain_id,block_number,block_hash" }
   );
   if (error) throw error;
 }
@@ -159,8 +161,18 @@ export async function updateCanonicalProgress(params: {
 export async function rollbackCanonical(params: {
   chainId: number;
   safeBlock: bigint;
+  safeBlockHash: string;
+  safeParentHash: string | null;
 }): Promise<void> {
   const supabase = getServiceRoleClient();
+
+  const { error: blockError } = await supabase
+    .from("indexed_blocks")
+    .update({ confirmation_status: "orphaned" })
+    .eq("chain_id", params.chainId)
+    .gt("block_number", params.safeBlock.toString())
+    .in("confirmation_status", ["canonical", "confirmed"]);
+  if (blockError) throw blockError;
 
   const { error: eventError } = await supabase
     .from("blockchain_events")
@@ -180,12 +192,16 @@ export async function rollbackCanonical(params: {
     .from("indexer_sync_state")
     .update({
       next_block: (params.safeBlock + 1n).toString(),
+      last_processed_block: params.safeBlock.toString(),
+      last_processed_block_hash: params.safeBlockHash,
+      last_processed_parent_hash: params.safeParentHash,
+      safe_block: params.safeBlock.toString(),
       latest_confirmed_block: null,
       status: "syncing",
       last_error: null,
     })
     .eq("chain_id", params.chainId)
-    .gt("next_block", (params.safeBlock + 1n).toString());
+    .gt("last_processed_block", params.safeBlock.toString());
   if (stateError) throw stateError;
 }
 

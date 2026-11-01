@@ -27,15 +27,15 @@ begin
   end if;
 
   insert into public.indexed_blocks (
-    chain_id, block_number, block_hash, parent_hash, block_time, confirmed_at
+    chain_id, block_number, block_hash, parent_hash, block_time, confirmed_at, confirmation_status
   ) values (
-    p_chain_id, p_block_number, p_block_hash, p_parent_hash, p_block_time, now()
+    p_chain_id, p_block_number, p_block_hash, p_parent_hash, p_block_time, now(), 'canonical'
   )
-  on conflict (chain_id, block_number) do update set
-    block_hash = excluded.block_hash,
+  on conflict (chain_id, block_number, block_hash) do update set
     parent_hash = excluded.parent_hash,
     block_time = excluded.block_time,
-    confirmed_at = excluded.confirmed_at;
+    confirmed_at = excluded.confirmed_at,
+    confirmation_status = excluded.confirmation_status;
 
   update public.indexer_state
   set last_processed_block = p_block_number,
@@ -48,6 +48,9 @@ begin
 
   update public.indexer_sync_state
   set next_block = p_block_number + 1,
+      last_processed_block = p_block_number,
+      last_processed_block_hash = p_block_hash,
+      last_processed_parent_hash = p_parent_hash,
       latest_confirmed_block = p_latest_confirmed_block,
       status = 'idle',
       last_success_at = now(),

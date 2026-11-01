@@ -26,10 +26,11 @@ latest confirmed block. To test a range without changing Supabase, set
 the last completed batch is the resume cursor and event upserts are idempotent.
 If the database is unavailable, the process records no successful checkpoint;
 the next poll retries the failed pass, and restart resumes from the last durable
-checkpoint. A detected reorg rewinds canonical event and block data to the
-common ancestor. Every affected contract checkpoint is rewound together, and
-canonical event/transaction rows are marked orphaned
-before the replacement chain is replayed after the next confirmation pass.
+checkpoint. A detected reorg rewinds chain-wide checkpoints to a verified
+common ancestor. Invalidated block, event, and transaction observations are
+marked orphaned rather than deleted, and compatibility transactions are marked
+unconfirmed before the replacement chain is replayed after the next
+confirmation pass.
 
 ## Common operational tasks
 - **Re-run a range**: since persistence is idempotent, you can safely

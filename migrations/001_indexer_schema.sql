@@ -32,9 +32,14 @@ create table if not exists indexed_blocks (
   parent_hash text,
   block_time timestamptz,
   confirmed_at timestamptz,
-  primary key (chain_id, block_number),
-  unique (chain_id, block_hash)
+  confirmation_status text not null default 'canonical'
+    check (confirmation_status in ('canonical', 'confirmed', 'orphaned')),
+  primary key (chain_id, block_number, block_hash)
 );
+
+create unique index if not exists indexed_blocks_one_canonical_per_height
+  on indexed_blocks (chain_id, block_number)
+  where confirmation_status in ('canonical', 'confirmed');
 
 create table if not exists indexed_transactions (
   id uuid primary key default gen_random_uuid(),
@@ -101,6 +106,10 @@ create table if not exists indexer_sync_state (
   chain_id bigint not null,
   contract_id uuid not null references contracts(id),
   next_block bigint not null,
+  last_processed_block bigint not null default 0,
+  safe_block bigint,
+  last_processed_block_hash text,
+  last_processed_parent_hash text,
   latest_confirmed_block bigint,
   status text not null default 'idle',
   last_success_at timestamptz,

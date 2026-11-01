@@ -13,13 +13,15 @@ try {
   const after = await pool.query("select count(*)::int as count from indexed_blocks");
   if (before.rows[0].count !== after.rows[0].count) throw new Error("database rollback failure left uncommitted data");
 
-  await pool.query("insert into indexed_blocks (chain_id, block_number, block_hash) values ($1, $2, $3) on conflict (chain_id, block_number) do update set block_hash = excluded.block_hash", [11142220, 99999998, "0x" + "bb".repeat(32)]);
-  await pool.query("insert into indexed_blocks (chain_id, block_number, block_hash) values ($1, $2, $3) on conflict (chain_id, block_number) do update set block_hash = excluded.block_hash", [11142220, 99999998, "0x" + "cc".repeat(32)]);
-  const duplicateBlock = await pool.query("select count(*)::int as count, max(block_hash) as hash from indexed_blocks where chain_id = $1 and block_number = $2", [11142220, 99999998]);
-  if (duplicateBlock.rows[0].count !== 1 || duplicateBlock.rows[0].hash !== "0x" + "cc".repeat(32)) throw new Error("duplicate block processing was not idempotent");
+  await pool.query("insert into indexed_blocks (chain_id, block_number, block_hash) values ($1, $2, $3) on conflict (chain_id, block_number, block_hash) do update set confirmation_status = 'canonical'", [11142220, 99999998, "0x" + "bb".repeat(32)]);
+  await pool.query("update indexed_blocks set confirmation_status = 'orphaned' where chain_id = $1 and block_number = $2 and block_hash = $3", [11142220, 99999998, "0x" + "bb".repeat(32)]);
+  await pool.query("insert into indexed_blocks (chain_id, block_number, block_hash) values ($1, $2, $3) on conflict (chain_id, block_number, block_hash) do update set confirmation_status = 'canonical'", [11142220, 99999998, "0x" + "cc".repeat(32)]);
+  const duplicateBlock = await pool.query("select count(*)::int as count from indexed_blocks where chain_id = $1 and block_number = $2", [11142220, 99999998]);
+  const blockHistory = await pool.query("select block_hash, confirmation_status from indexed_blocks where chain_id = $1 and block_number = $2", [11142220, 99999998]);
+  if (duplicateBlock.rows[0].count !== 2 || !blockHistory.rows.some((row) => row.block_hash === "0x" + "bb".repeat(32) && row.confirmation_status === "orphaned") || !blockHistory.rows.some((row) => row.block_hash === "0x" + "cc".repeat(32) && row.confirmation_status === "canonical")) throw new Error("reindexing did not preserve the orphaned observation");
 
-  await pool.query("insert into indexed_blocks (chain_id, block_number, block_hash) values ($1, $2, $3) on conflict (chain_id, block_number) do update set block_hash = excluded.block_hash", [11142220, 99999997, "0x" + "dd".repeat(32)]);
-  await pool.query("delete from indexed_blocks where chain_id = $1 and block_number in ($2, $3)", [11142220, 99999998, 99999997]);
+  await pool.query("insert into indexed_blocks (chain_id, block_number, block_hash) values ($1, $2, $3) on conflict (chain_id, block_number, block_hash) do update set confirmation_status = 'canonical'", [11142220, 99999997, "0x" + "dd".repeat(32)]);
+  await pool.query("update indexed_blocks set confirmation_status = 'orphaned' where chain_id = $1 and block_number in ($2, $3)", [11142220, 99999998, 99999997]);
   try {
     await pool.query("select public.commit_indexer_checkpoint($1, $2, $3, $4, $5, now(), $3)", [11142220, "0x0000000000000000000000000000000000000000", 99999999, "0x" + "ee".repeat(32), "0x" + "ff".repeat(32)]);
     throw new Error("invalid contract checkpoint unexpectedly succeeded");
@@ -34,7 +36,7 @@ try {
   let malformedAbiFailed = false;
   try { loadAbiFile("missing-USDm-artifact"); } catch { malformedAbiFailed = true; }
   if (!malformedAbiFailed) throw new Error("missing ABI did not fail closed");
-  console.log("FAILURE_INTEGRATION_PASS rollback duplicate-block checkpoint-failure rpc-unavailable missing-abi");
+  console.log("FAILURE_INTEGRATION_PASS rollback orphan-history reindex checkpoint-failure rpc-unavailable missing-abi");
 } finally {
   await pool.end();
 }

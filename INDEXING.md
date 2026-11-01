@@ -42,10 +42,13 @@ confirmation state.
 See `src/indexing/reorg.ts`. Before extending a checkpoint forward, the
 indexer verifies durable `indexed_blocks` anchors, including ranges with no
 contract events. On mismatch, it walks backward through anchors (up to 50
-anchors by default), deletes invalidated rows, and resumes from the canonical
-anchor. An unusually deep reorg throws rather than guessing.
-An unusually deep reorg (beyond the lookback window) throws rather than
 guessing a rollback point.
+eligible canonical or confirmed anchors by default), marks invalidated block,
+event, and transaction observations orphaned, and resumes from the nearest
+RPC-verified canonical anchor. Orphaned block rows remain available for
+reconciliation. Missing or inconsistent anchor history and RPC responses fail
+closed with diagnostics; a full lookback of mismatching anchors is reported as
+an unresolved deep reorganization.
 
 ## Graceful shutdown
 `SIGINT`/`SIGTERM` stop the poll loop after the in-flight pass completes,
