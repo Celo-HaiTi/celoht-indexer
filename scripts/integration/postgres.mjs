@@ -158,6 +158,28 @@ try {
   const retainedOrphan = await pool.query("select confirmation_status from indexed_blocks where chain_id = $1 and block_number = $2 and block_hash = $3", [11142221, 200, retainedOrphanHash]);
   if (retainedOrphan.rows[0]?.confirmation_status !== "orphaned") throw new Error("deployment recovery removed orphaned history");
 
+  const zeroDeploymentAddress = "0x7D384851FAbB912287206556479Dd30c740CAdA0";
+  const zeroDeploymentContract = await pool.query(
+    "insert into contracts (chain_id, contract_name, contract_address, deployment_block, metadata_ref) values ($1, $2, $3, $4, $5) returning id",
+    [11142221, "ZeroDeploymentRecovery", zeroDeploymentAddress, 0, "integration-test"]
+  );
+  await pool.query(
+    "insert into indexer_state (chain_id, contract_name, contract_address, last_processed_block) values ($1, $2, $3, $4)",
+    [11142221, "ZeroDeploymentRecovery", zeroDeploymentAddress, 200]
+  );
+  await pool.query(
+    "insert into indexer_sync_state (chain_id, contract_id, next_block, last_processed_block) values ($1, $2, $3, $4)",
+    [11142221, zeroDeploymentContract.rows[0].id, 201, 200]
+  );
+  await pool.query("select public.rewind_indexer_checkpoint_to_deployment($1, $2, $3)", [11142221, zeroDeploymentAddress, 0]);
+  const zeroDeploymentState = await pool.query(
+    "select legacy.last_processed_block as legacy_block, canonical.last_processed_block as canonical_block, canonical.next_block, canonical.last_processed_block_hash from indexer_state legacy join indexer_sync_state canonical on canonical.chain_id = legacy.chain_id join contracts c on c.id = canonical.contract_id and c.contract_address = legacy.contract_address where legacy.chain_id = $1 and legacy.contract_address = $2",
+    [11142221, zeroDeploymentAddress]
+  );
+  if (zeroDeploymentState.rows[0]?.legacy_block !== "0" || zeroDeploymentState.rows[0]?.canonical_block !== "0" || zeroDeploymentState.rows[0]?.next_block !== "0" || zeroDeploymentState.rows[0]?.last_processed_block_hash !== null) {
+    throw new Error("block-zero recovery did not preserve the nonnegative uninitialized cursor");
+  }
+
   await pool.query("begin");
   await pool.query("insert into indexed_blocks (chain_id, block_number, block_hash) values ($1, $2, $3)", [11142220, 35343252, "0x" + "88".repeat(32)]);
   await pool.query("rollback");

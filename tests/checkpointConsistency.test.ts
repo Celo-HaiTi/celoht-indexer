@@ -62,7 +62,33 @@ describe("checkpoint ledger consistency", () => {
       lastProcessedBlockHash: `0x${"aa".repeat(32)}`,
       lastProcessedParentHash: `0x${"bb".repeat(32)}`,
       latestConfirmedBlock: 105n,
+      nextBlock: 101n,
       syncStatus: "idle",
+    });
+  });
+
+  it("distinguishes an uninitialized block-zero cursor from a verified block-zero checkpoint", async () => {
+    rows.indexer_state.last_processed_block = "0";
+    rows.indexer_state.latest_confirmed_block = null;
+    rows.indexer_sync_state.last_processed_block = "0";
+    rows.indexer_sync_state.next_block = "0";
+    rows.indexer_sync_state.last_processed_block_hash = null;
+    rows.indexer_sync_state.last_processed_parent_hash = null;
+    rows.indexer_sync_state.latest_confirmed_block = null;
+
+    await expect(getCheckpoint(11142220, contractAddress)).resolves.toMatchObject({
+      lastProcessedBlock: 0n,
+      nextBlock: 0n,
+      lastProcessedBlockHash: null,
+    });
+
+    rows.indexer_sync_state.next_block = "1";
+    rows.indexer_sync_state.last_processed_block_hash = `0x${"cc".repeat(32)}`;
+
+    await expect(getCheckpoint(11142220, contractAddress)).resolves.toMatchObject({
+      lastProcessedBlock: 0n,
+      nextBlock: 1n,
+      lastProcessedBlockHash: `0x${"cc".repeat(32)}`,
     });
   });
 

@@ -102,6 +102,13 @@ export async function ensureCanonicalContract(params: {
   startBlock?: number;
   deploymentTxHash?: string;
 }): Promise<void> {
+  if (!Number.isSafeInteger(params.deploymentBlock) || params.deploymentBlock < 0) {
+    throw new RangeError("deploymentBlock must be a nonnegative safe integer");
+  }
+  if (params.startBlock !== undefined && (!Number.isSafeInteger(params.startBlock) || params.startBlock < 0)) {
+    throw new RangeError("startBlock must be a nonnegative safe integer");
+  }
+
   const supabase = getServiceRoleClient();
   const { error: networkError } = await supabase.from("blockchain_networks").upsert(
     { chain_id: params.chainId, network: params.network, native_symbol: "CELO", is_enabled: params.network === "celoSepolia" },
@@ -129,7 +136,7 @@ export async function ensureCanonicalContract(params: {
       chain_id: params.chainId,
       contract_id: contract.id,
       next_block: nextBlock,
-      last_processed_block: nextBlock - 1,
+      last_processed_block: Math.max(0, nextBlock - 1),
       status: "idle",
     },
     { onConflict: "chain_id,contract_id", ignoreDuplicates: true }
@@ -143,6 +150,9 @@ export async function updateCanonicalProgress(params: {
   lastProcessedBlock: bigint;
   latestConfirmedBlock: bigint;
 }): Promise<void> {
+  if (params.lastProcessedBlock < 0n || params.latestConfirmedBlock < 0n) {
+    throw new RangeError("checkpoint block numbers must be nonnegative");
+  }
   const supabase = getServiceRoleClient();
   const { data: contract, error: contractError } = await supabase
     .from("contracts")
@@ -167,6 +177,8 @@ export async function rollbackCanonical(params: {
   safeBlockHash: string;
   safeParentHash: string | null;
 }): Promise<void> {
+  if (params.safeBlock < 0n) throw new RangeError("safeBlock must be nonnegative");
+
   const supabase = getServiceRoleClient();
 
   const { error: blockError } = await supabase

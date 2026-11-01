@@ -6,6 +6,10 @@ const { operations } = vi.hoisted(() => ({
 
 vi.mock("@/db/supabaseClient", () => ({
   getServiceRoleClient: () => ({
+    rpc: (name: string, args: unknown) => {
+      operations.push({ table: "rpc", action: name, args: [args] });
+      return Promise.resolve({ error: null });
+    },
     from: (table: string) => {
       class Query implements PromiseLike<{ error: null }> {
         update(value: unknown): this {
@@ -46,10 +50,31 @@ vi.mock("@/db/supabaseClient", () => ({
   }),
 }));
 
-import { rollbackCheckpoint } from "@/db/checkpoints";
+import { rollbackCheckpoint, updateCheckpointProgress } from "@/db/checkpoints";
 
 describe("rollbackCheckpoint", () => {
   beforeEach(() => operations.splice(0));
+
+  it("rejects negative progress and rollback values before any Supabase write", async () => {
+    await expect(updateCheckpointProgress({
+      chainId: 11142220,
+      contractAddress: "test-contract",
+      lastProcessedBlock: -1n,
+      latestConfirmedBlock: 0n,
+      blockHash: `0x${"aa".repeat(32)}`,
+      parentHash: null,
+      blockTimestamp: 0n,
+    })).rejects.toThrow("checkpoint block numbers must be nonnegative");
+
+    await expect(rollbackCheckpoint({
+      chainId: 11142220,
+      safeBlock: -1n,
+      safeBlockHash: `0x${"aa".repeat(32)}`,
+      safeParentHash: null,
+    })).rejects.toThrow("safeBlock must be nonnegative");
+
+    expect(operations).toEqual([]);
+  });
 
   it("retains and orphans invalidated history while rewinding every affected contract checkpoint", async () => {
     await rollbackCheckpoint({

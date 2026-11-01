@@ -7,6 +7,7 @@ export interface CheckpointRow {
   chainId: number;
   contractAddress: string;
   lastProcessedBlock: bigint;
+  nextBlock: bigint;
   lastProcessedBlockHash: string | null;
   lastProcessedParentHash: string | null;
   latestConfirmedBlock: bigint | null;
@@ -55,7 +56,7 @@ export async function ensureCheckpoint(params: {
     chain_id: params.chainId,
     contract_name: params.displayName,
     contract_address: params.contractAddress,
-    last_processed_block: initialBlock - 1,
+    last_processed_block: Math.max(0, initialBlock - 1),
     sync_status: "idle",
   });
   if (insertError && insertError.code !== "23505") throwSupabaseError("indexer_state.insert", insertError);
@@ -87,10 +88,20 @@ export async function getCheckpoint(chainId: number, contractAddress: string): P
     .single();
   if (canonicalError) throw canonicalError;
 
+  const legacyProcessedBlock = BigInt(legacy.last_processed_block);
+  const canonicalProcessedBlock = BigInt(canonical.last_processed_block);
+  const nextBlock = BigInt(canonical.next_block);
+  const latestConfirmedBlock = nullableBigInt(legacy.latest_confirmed_block);
+  const canonicalLatestConfirmedBlock = nullableBigInt(canonical.latest_confirmed_block);
+  const uninitializedAtBlockZero =
+    nextBlock === 0n && canonicalProcessedBlock === 0n &&
+    canonical.last_processed_block_hash === null && canonical.last_processed_parent_hash === null &&
+    latestConfirmedBlock === null && canonicalLatestConfirmedBlock === null;
+
   if (
-    BigInt(legacy.last_processed_block) !== BigInt(canonical.last_processed_block) ||
-    nullableBigInt(legacy.latest_confirmed_block) !== nullableBigInt(canonical.latest_confirmed_block) ||
-    BigInt(canonical.next_block) !== BigInt(canonical.last_processed_block) + 1n
+    legacyProcessedBlock !== canonicalProcessedBlock ||
+    latestConfirmedBlock !== canonicalLatestConfirmedBlock ||
+    (!uninitializedAtBlockZero && nextBlock !== canonicalProcessedBlock + 1n)
   ) {
     throw new CheckpointConsistencyError(
       `Checkpoint ledgers disagree for chain ${chainId}, contract ${contractAddress}: ` +
@@ -102,7 +113,8 @@ export async function getCheckpoint(chainId: number, contractAddress: string): P
   return {
     chainId: legacy.chain_id,
     contractAddress: legacy.contract_address,
-    lastProcessedBlock: BigInt(legacy.last_processed_block),
+    lastProcessedBlock: legacyProcessedBlock,
+    nextBlock,
     lastProcessedBlockHash: canonical.last_processed_block_hash,
     lastProcessedParentHash: canonical.last_processed_parent_hash,
     latestConfirmedBlock: nullableBigInt(legacy.latest_confirmed_block),
@@ -123,6 +135,9 @@ export async function updateCheckpointProgress(params: {
   parentHash: string | null;
   blockTimestamp: bigint;
 }): Promise<void> {
+  if (params.lastProcessedBlock < 0n || params.latestConfirmedBlock < 0n) {
+    throw new RangeError("checkpoint block numbers must be nonnegative");
+  }
   const supabase = getServiceRoleClient();
   const { error } = await supabase.rpc("commit_indexer_checkpoint", {
     p_chain_id: params.chainId,
@@ -141,6 +156,9 @@ export async function rewindCheckpointToDeployment(params: {
   contractAddress: string;
   deploymentBlock: number;
 }): Promise<void> {
+  if (!Number.isSafeInteger(params.deploymentBlock) || params.deploymentBlock < 0) {
+    throw new RangeError("deploymentBlock must be a nonnegative safe integer");
+  }
   const { error } = await getServiceRoleClient().rpc("rewind_indexer_checkpoint_to_deployment", {
     p_chain_id: params.chainId,
     p_contract_address: params.contractAddress,
@@ -170,6 +188,8 @@ export async function rollbackCheckpoint(params: {
   safeBlockHash: string;
   safeParentHash: string | null;
 }): Promise<void> {
+  if (params.safeBlock < 0n) throw new RangeError("safeBlock must be nonnegative");
+
   const supabase = getServiceRoleClient();
 
   const { error: compatibilityError } = await supabase

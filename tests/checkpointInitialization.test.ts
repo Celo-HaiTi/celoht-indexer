@@ -60,4 +60,28 @@ describe("checkpoint initialization", () => {
     expect(syncState).toMatchObject({ next_block: 200, last_processed_block: 199 });
     expect(legacyState).toMatchObject({ last_processed_block: 199 });
   });
+
+  it("does not write a negative processed block for USDm's default block-zero startup", async () => {
+    await ensureCheckpoint({
+      chainId: 11142220,
+      contractName: "usdm",
+      displayName: "USDm",
+      contractAddress: `0x${"22".repeat(20)}`,
+      deploymentBlock: 0,
+      startBlock: 0,
+      network: "celoSepolia",
+    });
+
+    const syncState = writes.find((write) => write.table === "indexer_sync_state")?.values;
+    const legacyState = writes.find((write) => write.table === "indexer_state")?.values;
+    expect(syncState).toMatchObject({ next_block: 0, last_processed_block: 0 });
+    expect(legacyState).toMatchObject({ last_processed_block: 0 });
+    for (const write of writes) {
+      for (const [key, value] of Object.entries(write.values)) {
+        if (key === "processed_block" || key === "last_processed_block") {
+          expect(BigInt(value as string | number)).toBeGreaterThanOrEqual(0n);
+        }
+      }
+    }
+  });
 });

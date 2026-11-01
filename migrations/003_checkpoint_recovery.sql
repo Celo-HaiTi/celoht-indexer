@@ -13,6 +13,7 @@ join public.indexer_state legacy
   and legacy.contract_address = contract.contract_address
 where canonical.chain_id = contract.chain_id
   and canonical.contract_id = contract.id
+  and contract.deployment_block > 0
   and legacy.last_processed_block = contract.deployment_block - 1
   and legacy.latest_confirmed_block is null
   and canonical.last_processed_block = 0
@@ -51,6 +52,9 @@ begin
 
   if v_contract_id is null then
     raise exception 'Unknown indexer contract % on chain %', p_contract_address, p_chain_id;
+  end if;
+  if p_block_number < 0 or p_latest_confirmed_block < 0 then
+    raise exception 'Checkpoint block numbers must be nonnegative';
   end if;
 
   insert into public.indexed_blocks (
@@ -122,6 +126,9 @@ begin
   if v_contract_id is null then
     raise exception 'Unknown indexer contract % on chain %', p_contract_address, p_chain_id;
   end if;
+  if p_deployment_block < 0 then
+    raise exception 'Deployment block must be nonnegative';
+  end if;
   if v_official_deployment <> p_deployment_block then
     raise exception 'Recovery deployment block % does not match official block % for contract %',
       p_deployment_block, v_official_deployment, p_contract_address;
@@ -145,7 +152,7 @@ begin
       p_contract_address;
   end if;
 
-  v_seed_block := p_deployment_block - 1;
+  v_seed_block := greatest(0, p_deployment_block - 1);
 
   update public.indexer_state
   set last_processed_block = v_seed_block,

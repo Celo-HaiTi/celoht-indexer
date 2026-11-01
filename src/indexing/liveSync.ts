@@ -35,7 +35,8 @@ export async function runSyncPass(params: LiveSyncParams): Promise<void> {
   for (const target of params.targets) {
     const checkpoint = params.dryRun
       ? {
-          lastProcessedBlock: BigInt(target.deploymentBlock - 1),
+          lastProcessedBlock: BigInt(Math.max(0, target.deploymentBlock - 1)),
+          nextBlock: BigInt(target.deploymentBlock),
           lastProcessedBlockHash: null,
           lastProcessedParentHash: null,
           latestConfirmedBlock: null,
@@ -43,7 +44,7 @@ export async function runSyncPass(params: LiveSyncParams): Promise<void> {
         }
       : await getCheckpoint(params.chainId, target.contractAddress);
 
-    if (!params.dryRun && checkpoint.lastProcessedBlock > 0n) {
+    if (!params.dryRun && (checkpoint.nextBlock > 0n || checkpoint.lastProcessedBlockHash !== null)) {
       const { reorgDetected, safeBlock } = await detectAndHandleReorg({
         client: params.client,
         chainId: params.chainId,
@@ -62,7 +63,7 @@ export async function runSyncPass(params: LiveSyncParams): Promise<void> {
     const freshCheckpoint = params.dryRun
       ? checkpoint
       : await getCheckpoint(params.chainId, target.contractAddress);
-    const fromBlock = freshCheckpoint.lastProcessedBlock + 1n;
+    const fromBlock = freshCheckpoint.nextBlock;
 
     if (fromBlock > confirmedBlock) {
       logger.info("sync_pass_no_new_blocks", { contract: target.contract });
