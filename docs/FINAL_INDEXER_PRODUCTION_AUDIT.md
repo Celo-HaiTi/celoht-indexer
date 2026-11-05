@@ -1,6 +1,25 @@
 # CeloHT Indexer Production-Readiness Audit
+## Current Verification (2026-11-05)
 
-Date: 2026-09-08
+This status covers the `celoht-indexer` repository only. It does not establish
+backend, dApp, or deployed Supabase readiness.
+
+| Area | Status | Evidence or blocker |
+|---|---|---|
+| Unit tests, typecheck, lint, build | VERIFIED WORKING | `npm test`: 18 files / 102 tests passed; typecheck, lint, build, and mock-data guard passed on Node `24.22.2`. |
+| Celo Sepolia manifest and RPC | VERIFIED WORKING | `npm run test:integration:rpc`: chain `11142220`, head `40557859`, all five deployment hashes/blocks/addresses via Blockscout, bytecode, and logs. Observed 0 governance logs and 34 USDm transfers. |
+| Celo Sepolia manifest and RPC | VERIFIED WORKING | `npm run test:integration:rpc`: chain `11142220`, head `40558275`, all five deployment hashes/blocks/addresses via Blockscout, bytecode, and logs. Observed 0 governance logs and 34 USDm transfers. |
+| Checkpoint persistence and PostgreSQL migrations | BLOCKED | No `POSTGRES_TEST_URL` is configured. The integration runner is destructive and now requires a disposable test database plus explicit opt-in. |
+| Supabase startup, synchronization, restart recovery | BLOCKED | No target Supabase credentials or deployed schema are available in this workspace. |
+| Backend API and dApp workflows | NOT IMPLEMENTED | These separate repositories are not present in this workspace. |
+| Dependency security | BLOCKED | `npm audit --audit-level=high` reported six moderate transitive `minimatch` advisories and no high/critical findings; npm only offered a forced breaking downgrade. |
+| Render deployment | BLOCKED | Deployment configuration is present, but no deployment was performed or verified. |
+
+The audit results above are repository-scoped. The PostgreSQL migration chain,
+real checkpoint restart, Supabase permissions, and backend-consumer schema
+still require validation against an isolated test project before a pilot.
+
+Historical audit date: 2026-09-08
 
 ## A. Repository Status
 

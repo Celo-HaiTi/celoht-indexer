@@ -25,8 +25,14 @@ Use `DRY_RUN=true` to scan and decode without writing events or checkpoints. Use
 
 USDm requires the canonical deployed artifact at `abis/USDm.json`; startup
 fails closed if that artifact is missing or its `Transfer` event is malformed.
-Run real integration checks with `POSTGRES_TEST_URL` and `CELO_RPC_URL`:
-`npm run test:integration`.
+Run read-only Celo Sepolia verification with `npm run test:integration:rpc`;
+it checks chain ID, every contract deployment record from Blockscout, deployed
+bytecode, and bounded governance/USDm logs against the public RPC. The
+PostgreSQL integration test drops and recreates the target database's `public`
+schema, so it requires a disposable database named with `test`, an explicit
+`POSTGRES_TEST_URL`, and `POSTGRES_TEST_ALLOW_SCHEMA_RESET=true`. Never use a
+production or shared Supabase database. Run `npm run test:integration` only
+after configuring both services.
 
 Health and readiness are exposed at `GET /health` and `GET /readyz` on port `PORT` or `8080`.
 

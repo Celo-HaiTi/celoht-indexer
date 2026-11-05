@@ -1,24 +1,29 @@
-# DATABASE.md (indexer perspective)
+# Database Contract
 
-Schema lives in `Celo-HaiTi/celoht-supabase`. This indexer writes exclusively to
-the tables documented there as INDEXER OWNED or explicitly shared:
+`migrations/001_indexer_schema.sql` owns the indexer ledger and checkpoint
+tables. Apply migrations `002` and `003` after it. These migrations do not
+create every shared application table used by optional projections; those must
+come from the reviewed canonical migrations in `Celo-HaiTi/celoht-supabase`.
 
-- `blockchain_transactions` (upsert, unique on chain_id/tx_hash/log_index)
-- `governance_proposals`, `governance_activity` (upsert, keyed as described in
-  the canonical migration)
-- `indexer_state` (checkpoints)
-- `agents.on_chain_registry_status` — **update only**, matched by
-  wallet_address; never inserts a new `agents` row
-- `system_health` (component = 'indexer', shared health snapshot)
+The runtime writes the following tables:
 
-The authoritative event ledger is `blockchain_events`. The indexer does not
-write local-only event tables such as `agent_events`,
-`service_payment_events`, `education_events`, `reforestation_events`,
-`governance_events`, or `token_transfers`; those tables are not part of the
-canonical Supabase contract.
+| Table | Use |
+|---|---|
+| `blockchain_networks`, `contracts` | Manifest-derived network and contract metadata |
+| `indexer_state`, `indexer_sync_state` | Compatibility and canonical restart checkpoints |
+| `indexed_blocks`, `indexed_transactions`, `blockchain_events` | Canonical block, transaction, and decoded event ledger |
+| `blockchain_transactions` | Compatibility event projection, upserted by chain, transaction hash, and log index |
+| `system_health` | Startup health snapshot; shared table required by the Supabase project |
+| `agents` | Updates `on_chain_registry_status` for an existing wallet after `AgentRegistered`; never inserts an agent |
+| `governance_proposals`, `governance_activity` | Optional governance projections for proposal and vote events |
 
-It never writes to `profiles`, `agent_kyc`, `courses`, `course_modules`,
-`lessons`, `course_progress`, `certificates`, `reforestation_projects`,
-`reforestation_evidence`, or `audit_logs` — see `src/indexing/persist.ts`,
-which only imports the service-role client and only touches the tables
-listed above.
+`agents`, `governance_proposals`, and `governance_activity` are not created by
+the local indexer migrations. Confirm their columns, unique constraints, and
+service-role grants against the deployed canonical Supabase schema before
+enabling these projections. The indexer logs unsupported event projections
+for service payments, education, reforestation, and USDm; their decoded events
+remain available in `blockchain_events`.
+
+The indexer does not write to user profiles, KYC, courses, lessons, learning
+progress, certificates, reforestation project/evidence records, or audit logs.
+The `SUPABASE_SERVICE_ROLE_KEY` is server-side only.

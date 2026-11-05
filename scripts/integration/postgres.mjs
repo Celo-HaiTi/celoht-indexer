@@ -4,9 +4,16 @@ import { fileURLToPath } from "node:url";
 import pg from "pg";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const connectionString = process.env.POSTGRES_TEST_URL || process.env.DATABASE_URL;
+const connectionString = process.env.POSTGRES_TEST_URL;
 if (!connectionString) {
-  throw new Error("POSTGRES_TEST_URL or DATABASE_URL is required; refusing to skip PostgreSQL integration tests.");
+  throw new Error("POSTGRES_TEST_URL is required; refusing to skip PostgreSQL integration tests.");
+}
+if (process.env.POSTGRES_TEST_ALLOW_SCHEMA_RESET !== "true") {
+  throw new Error("This test drops and recreates the public schema. Set POSTGRES_TEST_ALLOW_SCHEMA_RESET=true only for a disposable test database.");
+}
+const databaseName = decodeURIComponent(new URL(connectionString).pathname.slice(1));
+if (!/(^|[_-])test([_-]|$)/i.test(databaseName)) {
+  throw new Error(`Refusing destructive PostgreSQL integration test for database '${databaseName}'; its name must clearly identify a test database.`);
 }
 
 const pool = new pg.Pool({ connectionString, max: 2 });

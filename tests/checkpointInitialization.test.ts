@@ -22,6 +22,14 @@ vi.mock("@/db/supabaseClient", () => ({
           return this;
         }
 
+        eq(): this {
+          return this;
+        }
+
+        maybeSingle(): Promise<{ data: null; error: null }> {
+          return Promise.resolve({ data: null, error: null });
+        }
+
         single(): Promise<{ data: { id: string }; error: null }> {
           return Promise.resolve({ data: { id: "contract-id" }, error: null });
         }

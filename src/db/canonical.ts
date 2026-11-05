@@ -116,25 +116,53 @@ export async function ensureCanonicalContract(params: {
   );
   if (networkError) throwSupabaseError("blockchain_networks.upsert", networkError);
 
-  const { data: contract, error: contractError } = await supabase.from("contracts").upsert(
-    {
-      chain_id: params.chainId,
-      contract_name: params.contractName,
-      contract_address: params.contractAddress,
-      deployment_block: params.deploymentBlock,
-      deployment_tx_hash: params.deploymentTxHash ?? null,
-      metadata_ref: METADATA_REF,
-      is_active: true,
-    },
-    { onConflict: "chain_id,contract_address" }
-  ).select("id").single();
-  if (contractError) throwSupabaseError("contracts.upsert", contractError);
+  const { data: existingContract, error: existingContractError } = await supabase
+    .from("contracts")
+    .select("id, contract_name, contract_address, deployment_block, deployment_tx_hash")
+    .eq("chain_id", params.chainId)
+    .eq("contract_address", params.contractAddress)
+    .maybeSingle();
+  if (existingContractError) throwSupabaseError("contracts.select", existingContractError);
+
+  let contractId: string;
+  if (existingContract) {
+    const txHashMatches = (existingContract.deployment_tx_hash ?? null) === (params.deploymentTxHash ?? null) ||
+      (typeof existingContract.deployment_tx_hash === "string" && typeof params.deploymentTxHash === "string" &&
+        existingContract.deployment_tx_hash.toLowerCase() === params.deploymentTxHash.toLowerCase());
+    if (
+      existingContract.contract_name !== params.contractName ||
+      existingContract.contract_address.toLowerCase() !== params.contractAddress.toLowerCase() ||
+      BigInt(existingContract.deployment_block) !== BigInt(params.deploymentBlock) ||
+      !txHashMatches
+    ) {
+      throw new Error(
+        `Persisted contract metadata does not match the deployment manifest for ${params.contractAddress}; ` +
+          "review the database row and manifest before indexing."
+      );
+    }
+    contractId = existingContract.id;
+  } else {
+    const { data: contract, error: contractError } = await supabase.from("contracts").upsert(
+      {
+        chain_id: params.chainId,
+        contract_name: params.contractName,
+        contract_address: params.contractAddress,
+        deployment_block: params.deploymentBlock,
+        deployment_tx_hash: params.deploymentTxHash ?? null,
+        metadata_ref: METADATA_REF,
+        is_active: true,
+      },
+      { onConflict: "chain_id,contract_address" }
+    ).select("id").single();
+    if (contractError) throwSupabaseError("contracts.upsert", contractError);
+    contractId = contract.id;
+  }
 
   const nextBlock = Math.max(params.deploymentBlock, params.startBlock ?? params.deploymentBlock);
   const { error: stateError } = await supabase.from("indexer_sync_state").upsert(
     {
       chain_id: params.chainId,
-      contract_id: contract.id,
+      contract_id: contractId,
       next_block: nextBlock,
       last_processed_block: Math.max(0, nextBlock - 1),
       status: "idle",

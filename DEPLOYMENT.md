@@ -10,6 +10,10 @@ keeps writes service-role-only, and adds guarded checkpoint recovery. Configure
 only the Celo Sepolia manifest in this release; Mainnet intentionally fails
 closed. The database role should be limited to the indexer-owned tables in
 `DATA_MODEL.md`.
+The local migration chain does not create shared application tables used by
+optional agent and governance projections or the startup `system_health`
+snapshot. Verify those tables and service-role permissions against the
+canonical `celoht-supabase` schema before deployment; see `DATABASE.md`.
 
 ```bash
 npm ci

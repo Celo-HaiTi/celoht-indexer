@@ -14,10 +14,23 @@ if (chainId !== meta.chainId) throw new Error(`RPC chain mismatch: expected ${me
 const head = await client.getBlockNumber();
 const block = await client.getBlock({ blockNumber: head });
 if (!block.hash || !block.parentHash) throw new Error("RPC returned malformed block data");
-const deployment = await client.getTransaction({ hash: meta.transactionHashes.governance });
-if (deployment.blockNumber < BigInt(meta.deploymentBlocks.governance)) throw new Error("deployment transaction block is before manifest deployment block");
-const governanceBytecode = await client.getBytecode({ address: meta.governance });
-if (!governanceBytecode || governanceBytecode === "0x") throw new Error("governance address has no deployed bytecode");
+const contractNames = ["agentRegistry", "servicePayments", "education", "reforestation", "governance"];
+for (const name of contractNames) {
+	const deploymentResponse = await fetch(
+		`https://celo-sepolia.blockscout.com/api/v2/transactions/${meta.transactionHashes[name]}`
+	);
+	if (!deploymentResponse.ok) throw new Error(`Blockscout deployment lookup failed for ${name}: HTTP ${deploymentResponse.status}`);
+	const deployment = await deploymentResponse.json();
+	if (
+		deployment.hash?.toLowerCase() !== meta.transactionHashes[name].toLowerCase() ||
+		BigInt(deployment.block_number) !== BigInt(meta.deploymentBlocks[name]) ||
+		deployment.created_contract?.hash?.toLowerCase() !== meta[name].toLowerCase()
+	) {
+		throw new Error(`deployment receipt for ${name} does not match the manifest address and block`);
+	}
+	const bytecode = await client.getBytecode({ address: meta[name] });
+	if (!bytecode || bytecode === "0x") throw new Error(`${name} address has no deployed bytecode`);
+}
 const usdmBytecode = await client.getBytecode({ address: meta.usdm });
 if (!usdmBytecode || usdmBytecode === "0x") throw new Error("USDm address has no deployed bytecode");
 const governanceEvent = parseAbiItem("event ProposalCreated(uint256 indexed proposalId,address indexed proposer,bytes32 contentHash,string metadataURI,uint64 startTime,uint64 endTime)");
@@ -30,4 +43,4 @@ for (let start = fromBlock; start <= head; start += 90_000n) {
 	governanceLogs += (await client.getLogs({ address: meta.governance, event: governanceEvent, fromBlock: start, toBlock: end })).length;
 	transferLogs += (await client.getLogs({ address: meta.usdm, event: transferEvent, fromBlock: start, toBlock: end })).length;
 }
-console.log(`RPC_INTEGRATION_PASS chain=${chainId} head=${head} deploymentBlock=${deployment.blockNumber} governanceLogs=${governanceLogs} usdmTransferLogs=${transferLogs}`);
+console.log(`RPC_INTEGRATION_PASS chain=${chainId} head=${head} contractsVerified=${contractNames.length} governanceLogs=${governanceLogs} usdmTransferLogs=${transferLogs}`);

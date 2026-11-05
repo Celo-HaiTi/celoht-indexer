@@ -9,8 +9,11 @@ npm start
 ```
 
 Before a release, run `npm run test:integration` with an isolated PostgreSQL
-database and an explicitly configured Celo Sepolia RPC. The command fails when
-either URL is missing; it never silently skips external integration checks.
+database and an explicitly configured Celo Sepolia RPC. The PostgreSQL test
+drops and recreates the target database's `public` schema, so it only accepts
+`POSTGRES_TEST_URL`, requires a database name containing `test`, and requires
+`POSTGRES_TEST_ALLOW_SCHEMA_RESET=true`. Never use a production or shared
+Supabase database for this test.
 
 ## Health endpoint
 `GET http://localhost:8080/health` or `/readyz` (port from `$PORT`, default 8080)
